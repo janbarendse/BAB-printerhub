@@ -249,8 +249,8 @@ def get_sub_items(data):
                 "extra_description_2": line3,   # Line 3 (MANDATORY - always has content)
                 "product_code": " ",  # Space character to hide from receipt but avoid crash
                 "quantity": encode_float_number(item['item_quantity'], 3),  # 2.000
-                # "unit_price": encode_float_number(item['prices']['index_0']['@Price'], 2),  # 1.55
-                "unit_price": encode_float_number(item['item_price'], 2),  # 1.55
+                # item_price is already formatted correctly from odoo_integration.py - don't re-encode
+                "unit_price": item['item_price'],  # Already formatted as "10000" for 100.00
                 "unit": encode_measurement_unit(item['item_unit']),  # Units Kilos Grams Pounds Boxes
                 "tax": tax_ids[item['vat_percent']] if not tax_exempt else "0",  # tax id
                 "discount_type": "0",

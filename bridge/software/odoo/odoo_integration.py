@@ -440,31 +440,32 @@ class OdooIntegration(BaseSoftware):
                     if product_name.startswith("[TIPS] Tips"):
                         tip += price_unit * quantity
                     else:
-                        # Use price_subtotal_incl which includes service charge & taxes, divide by qty for per-item price
-                        price_subtotal_incl = line.get('price_subtotal_incl', 0.0)
-                        if quantity > 0:
-                            # Calculate per-item price from line total (includes service charge)
-                            price_per_item = price_subtotal_incl / quantity
-                        else:
-                            price_per_item = price_unit
+                        # Use price_unit (base price) - printer calculates VAT separately
+                        # Format price correctly: ensure 2 decimals, then remove decimal point
+                        # Example: 100.00 -> "100.00" -> "10000" (printer displays as 100.00)
+                        price_str = f"{price_unit:.2f}"
+                        price_formatted = price_str.replace(".", "")
 
-                        logger.debug(f"Item '{product_name}': price_unit={price_unit}, price_subtotal_incl={price_subtotal_incl}, qty={quantity}, price_per_item={price_per_item}")
+                        logger.debug(f"Item '{product_name}': price_unit={price_unit}, qty={quantity}, formatted={price_formatted}")
 
-                        # Get tax information (skip service charge for vat_percent)
+                        # Get tax information and extract service charge
                         if line['tax_ids']:
                             taxes = self._fetch_taxes(line['tax_ids'])
                             for tax in taxes:
-                                # Only use non-service-charge taxes for VAT
-                                if "Service Charge" not in tax['name']:
+                                if "Service Charge" in tax['name']:
+                                    # Extract service charge percentage (apply at order level)
+                                    service_charge = tax['amount']
+                                else:
+                                    # Use non-service-charge taxes for VAT
                                     vat_percent = str(tax['amount'])
 
-                        # Add article with correct price including service charge
+                        # Add article with base price (service charge applied at order level)
                         article = {
                             "void": False,
                             "vat_percent": vat_percent,
                             "discount_percent": str(discount_percent),
                             "surcharge_amount": str(price_extra),
-                            "item_price": str(price_per_item),
+                            "item_price": price_formatted,
                             "item_quantity": str(int(quantity)),
                             "item_unit": "Units",
                             "item_code": line['product_id'][0] if line['product_id'] else "ITEMCODE",
@@ -510,7 +511,7 @@ class OdooIntegration(BaseSoftware):
             order_data = {
                 "articles": articles,
                 "payments": payments,
-                "service_charge_percent": "0",  # No order-level service charge (applied per-item instead)
+                "service_charge_percent": str(service_charge),  # Service charge applied at order level
                 "tips": [],
                 "order_id": str(order['id']),
                 "receipt_number": order['pos_reference'],
