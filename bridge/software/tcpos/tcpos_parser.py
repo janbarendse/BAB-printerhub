@@ -197,7 +197,8 @@ def process_discount_surcharge(item):
         "type": "1" if is_discount else "2",  # "1" = Discount, "2" = Surcharge
         "description": description,
         "amount": encode_float_number(amount_abs, 2),
-        "percent": "00000",
+        "percent": "00000",  # Always "00000" for printer (uses amount only)
+        "percent_display": percent_value if is_percent_discount else "00000",  # For display purposes only
     }
 
 
@@ -423,6 +424,36 @@ def get_sub_items(xml_json_object):
                     if q > 0 and item_data['discounts_surcharges'][i] is not None:
                         item_discount = item_data['discounts_surcharges'][i]
                         break
+
+                # Add discount percentage to description if present (only for discounts, not surcharges)
+                if item_discount and item_discount.get('percent_display', "00000") != "00000" and item_discount.get('type') == "1":
+                    # Extract percentage value (e.g., "03300" -> 33.00%)
+                    percent_value = float(item_discount['percent_display']) / 100
+                    discount_text = f"w/ {percent_value:.0f}% disc."
+
+                    # Append to the last non-empty line, truncate if needed to fit in 48 chars
+                    if line3:
+                        combined = f"{line3} {discount_text}"
+                        if len(combined) <= 48:
+                            line3 = combined
+                        else:
+                            # Truncate product name to fit discount text
+                            available_space = 48 - len(discount_text) - 1  # -1 for space
+                            line3 = f"{line3[:available_space]} {discount_text}"
+                    elif line2:
+                        combined = f"{line2} {discount_text}"
+                        if len(combined) <= 48:
+                            line2 = combined
+                        else:
+                            available_space = 48 - len(discount_text) - 1
+                            line2 = f"{line2[:available_space]} {discount_text}"
+                    elif line1:
+                        combined = f"{line1} {discount_text}"
+                        if len(combined) <= 48:
+                            line1 = combined
+                        else:
+                            available_space = 48 - len(discount_text) - 1
+                            line1 = f"{line1[:available_space]} {discount_text}"
 
                 # Build item with discount/surcharge included in the item command itself
                 # For command 41: discount_type "0" = none, "1" = discount, "2" = surcharge
@@ -817,6 +848,9 @@ def tcpos_parse_transaction(filename):
         # Extract TransNum (TCPOS transaction/receipt number)
         trans_num = xml_json_object[transaction_uuid]['data'].get('@TransNum', '')
 
+        # Extract operator code (cashier/operator ID)
+        operator_code = xml_json_object[transaction_uuid]['data'].get('@operatorID', '')
+
         # Extract Comment field (for footer notes)
         comment = xml_json_object[transaction_uuid]['data'].get('@Comment', '')
 
@@ -843,12 +877,12 @@ def tcpos_parse_transaction(filename):
                     is_credit_note = True
                     logger.info(f"Credit note detected via StornoType: {storno_type}")
 
-        return items, payments, service_charge, tips, trans_num, is_credit_note, discount, comment, customer
+        return items, payments, service_charge, tips, trans_num, is_credit_note, discount, comment, customer, operator_code
 
     except Exception as e:
         logger.error("Error: " + str(e))
 
-    return None, None, None, None, None, False, None, None, None
+    return None, None, None, None, None, False, None, None, None, None
 
 
 def migrate_renamed_files(transactions_folder):
@@ -926,11 +960,34 @@ def files_watchdog(config, printer, stop_event=None):
                             continue  # Already processed, skip
 
                         logger.debug("File found: " + os.path.join(root, file))
-                        items, payments, service_charge, tips, trans_num, is_credit_note, discount, comment, customer = tcpos_parse_transaction(os.path.join(root, file))
+                        items, payments, service_charge, tips, trans_num, is_credit_note, discount, comment, customer, operator_code = tcpos_parse_transaction(os.path.join(root, file))
 
                         if items and payments:
-                            # Call printer's print_document method
-                            printer.print_document(items, payments, service_charge, tips, trans_num, is_credit_note, discount, comment, customer)
+                            # Extract customer info from dict
+                            customer_name = None
+                            customer_crib = None
+                            if customer:
+                                customer_name = customer.get('name')
+                                customer_crib = customer.get('code')
+
+                            # Use operator code for POS name (e.g., "Operator: 1701")
+                            pos_display = f"Operator: {operator_code}" if operator_code else "TCpos"
+
+                            # Call printer's print_document method with correct parameters
+                            printer.print_document(
+                                items=items,
+                                payments=payments,
+                                service_charge=service_charge,
+                                tips=tips,
+                                discount=discount,
+                                surcharge=None,
+                                general_comment=comment if comment else "",
+                                is_refund=is_credit_note,
+                                receipt_number=trans_num,  # TCpos check number
+                                pos_name=pos_display,  # Operator code
+                                customer_name=customer_name,
+                                customer_crib=customer_crib
+                            )
 
                             # Create marker file (keep original for TCPOS refunds)
                             with open(marker_processed, 'w') as f:

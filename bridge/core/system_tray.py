@@ -14,6 +14,10 @@ from PIL import Image
 import pystray
 from pystray import Menu as menu, MenuItem as item
 
+# Import version info
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from version import VERSION
+
 logger = logging.getLogger(__name__)
 
 
@@ -192,7 +196,7 @@ class SystemTray:
             item('View Logs', self._open_log_window),
             item(f'Status: {active_software} > {active_printer}', None, enabled=False),
             menu.SEPARATOR,
-            item('Quit BAB Cloud', self._quit_application)
+            item(f'Quit BAB PrintHub v{VERSION}', self._quit_application)
         )
 
     def run(self):

@@ -1205,7 +1205,7 @@ class CTS310iiDriver(BasePrinter):
                     if not self._payment(tip):
                         logger.warning("Failed to process tip")
 
-            # Add footer info (Receipt ID, POS, Document Nr) after payments, before close
+            # Add footer info (Receipt ID, POS, Cash Register, Document Nr) after payments, before close
             if has_customer:
                 self._add_comment("================================================")
                 self._add_comment(f"CUSTOMER: {final_customer_name}")
@@ -1215,7 +1215,17 @@ class CTS310iiDriver(BasePrinter):
             if receipt_number:
                 self._add_comment(f"Receipt ID: {receipt_number}")
             if pos_name:
-                self._add_comment(f"POS: {pos_name}")
+                # Display as "Operator: 1701" if operator code, otherwise "POS: [name]"
+                if pos_name.startswith("Operator:"):
+                    self._add_comment(pos_name)
+                else:
+                    self._add_comment(f"POS: {pos_name}")
+
+            # Add cash register info
+            cash_register = nkf_config.get("cash_register", "")
+            if cash_register:
+                self._add_comment(f"Cash Register: {cash_register}")
+
             self._add_comment(f"Document Nr: {document_number}")
 
             # Add general comment if present
