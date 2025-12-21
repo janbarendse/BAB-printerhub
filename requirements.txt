@@ -1,0 +1,37 @@
+# BAB-Cloud PrintHub Requirements
+# Python 3.13 required (pythonnet compatibility)
+
+# Build tools
+pyinstaller==6.10.0
+
+# Serial communication (printer drivers)
+pyserial==3.5
+
+# XML parsing (Odoo and TCPOS)
+xmltodict==0.13.0
+
+# UI components
+pywebview>=4.4.1
+pystray==0.19.5
+Pillow>=10.4.0
+
+# Windows integration
+pythonnet>=3.0.0
+pywin32>=306
+
+# Security (Odoo credentials)
+cryptography>=43.0.1
+
+# HTTP requests (WordPress polling)
+requests>=2.32.3
+urllib3>=2.0.0
+
+# Date/time utilities
+python-dateutil>=2.8.2
+
+# Package utilities
+packaging>=23.0
+
+# Optional: Development tools (comment out for production)
+# pytest>=7.4.0
+# pytest-cov>=4.1.0

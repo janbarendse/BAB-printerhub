@@ -1,0 +1,258 @@
+"""
+System tray icon and menu management for BAB-Cloud PrintHub.
+
+Provides a system tray icon with menu for quick access to fiscal tools,
+reports, and application control.
+"""
+
+import os
+import sys
+import logging
+import threading
+import queue
+from PIL import Image
+import pystray
+from pystray import Menu as menu, MenuItem as item
+
+logger = logging.getLogger(__name__)
+
+
+# Determine base directory for logo
+if getattr(sys, 'frozen', False):
+    # Running as compiled executable
+    RESOURCE_DIR = sys._MEIPASS  # For bundled resources (logo.png)
+    BASE_DIR = os.path.dirname(sys.executable)  # For user files
+else:
+    # Running as script
+    RESOURCE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    BASE_DIR = RESOURCE_DIR
+
+
+class SystemTray:
+    """
+    System tray icon manager.
+
+    Provides a system tray icon with menu for:
+    - Opening fiscal tools modal
+    - Quick X/Z reports
+    - NO SALE operation
+    - Application quit
+    """
+
+    def __init__(self, config, printer, software, modal_queue):
+        """
+        Initialize system tray.
+
+        Args:
+            config: Full configuration dict
+            printer: Active printer instance
+            software: Active software instance
+            modal_queue: Queue for signaling main thread to open modals
+        """
+        self.config = config
+        self.printer = printer
+        self.software = software
+        self.modal_queue = modal_queue
+        self.icon = None
+
+    def _open_fiscal_tools(self):
+        """Signal main thread to open fiscal tools modal."""
+        try:
+            logger.info("Fiscal Tools requested from system tray")
+            self.modal_queue.put('open_fiscal_tools')
+        except Exception as e:
+            logger.error(f"Error signaling fiscal tools: {e}")
+
+    def _print_x_report(self):
+        """Print X report from system tray."""
+        try:
+            logger.info("X-Report triggered from system tray")
+            result = self.printer.print_x_report()
+            if result.get("success"):
+                logger.info("X-Report printed successfully from system tray")
+            else:
+                logger.warning(f"X-Report failed from system tray: {result.get('error')}")
+        except Exception as e:
+            logger.error(f"Error printing X-Report from system tray: {e}")
+
+    def _print_z_report(self):
+        """Print Z report from system tray."""
+        try:
+            logger.info("Z-Report triggered from system tray")
+            result = self.printer.print_z_report(close_fiscal_day=True)
+            if result.get("success"):
+                logger.info("Z-Report printed successfully from system tray")
+            else:
+                logger.warning(f"Z-Report failed from system tray: {result.get('error')}")
+        except Exception as e:
+            logger.error(f"Error printing Z-Report from system tray: {e}")
+
+    def _print_no_sale(self):
+        """Print NO SALE receipt from system tray."""
+        try:
+            logger.info("NO SALE triggered from system tray")
+            result = self.printer.print_no_sale()
+            if result.get("success"):
+                logger.info("NO SALE printed successfully from system tray")
+            else:
+                logger.warning(f"NO SALE failed from system tray: {result.get('error')}")
+        except Exception as e:
+            logger.error(f"Error printing NO SALE from system tray: {e}")
+
+    def _open_log_window(self):
+        """Open log viewer window."""
+        try:
+            logger.info("Log window requested from system tray")
+            self.modal_queue.put('open_log_window')
+        except Exception as e:
+            logger.error(f"Error signaling log window: {e}")
+
+    def _open_pos_frontend(self):
+        """Open POS frontend (URL for Odoo, executable for TCPOS)."""
+        try:
+            logger.info("POS frontend requested from system tray")
+            active_software = self.config.get('software', {}).get('active', '')
+
+            if active_software == 'odoo':
+                # Open Odoo URL in browser
+                try:
+                    from software.odoo.credentials_handler import load_credentials
+                    # Determine base directory
+                    if getattr(sys, 'frozen', False):
+                        base_dir = os.path.dirname(sys.executable)
+                    else:
+                        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+                    creds = load_credentials(base_dir)
+                    if creds and 'url' in creds:
+                        import webbrowser
+                        webbrowser.open(creds['url'])
+                        logger.info(f"Opening Odoo at {creds['url']}")
+                    else:
+                        logger.warning("Odoo URL not found in credentials")
+                except Exception as e:
+                    logger.error(f"Error opening Odoo URL: {e}")
+
+            elif active_software == 'tcpos':
+                # Launch TCPOS executable
+                tcpos_exe = r"D:\TCpos\FrontEnd\TCPOS.AppStarter.exe"
+                if os.path.exists(tcpos_exe):
+                    import subprocess
+                    subprocess.Popen([tcpos_exe])
+                    logger.info(f"Launching TCPOS from {tcpos_exe}")
+                else:
+                    logger.warning(f"TCPOS executable not found at {tcpos_exe}")
+            else:
+                logger.warning(f"POS frontend not configured for {active_software}")
+
+        except Exception as e:
+            logger.error(f"Error opening POS frontend: {e}")
+
+    def _quit_application(self):
+        """Quit the application."""
+        try:
+            logger.info("Quit requested from system tray")
+
+            # Stop software integration gracefully
+            if self.software and self.software.running:
+                logger.info(f"Stopping {self.software.get_name()} integration...")
+                self.software.stop()
+
+            # Disconnect printer
+            if self.printer and self.printer.connected:
+                logger.info(f"Disconnecting {self.printer.get_name()} printer...")
+                self.printer.disconnect()
+
+            logger.info("Application shutting down")
+            os._exit(0)
+
+        except Exception as e:
+            logger.error(f"Error during quit: {e}")
+            os._exit(1)
+
+    def create_menu(self) -> menu:
+        """
+        Create the system tray menu.
+
+        Returns:
+            pystray.Menu: Configured menu
+        """
+        # Get active software and printer names for status display
+        active_software = self.config.get('software', {}).get('active', 'unknown').upper()
+        active_printer = self.config.get('printer', {}).get('active', 'unknown').upper()
+
+        return menu(
+            item('Fiscal Tools', self._open_fiscal_tools, default=True),
+            menu.SEPARATOR,
+            item(f'Open {active_software} POS', self._open_pos_frontend),
+            menu.SEPARATOR,
+            item('Print X-Report', self._print_x_report),
+            item('Print Z-Report', self._print_z_report),
+            menu.SEPARATOR,
+            item('View Logs', self._open_log_window),
+            item(f'Status: {active_software} > {active_printer}', None, enabled=False),
+            menu.SEPARATOR,
+            item('Quit BAB Cloud', self._quit_application)
+        )
+
+    def run(self):
+        """
+        Run the system tray icon (blocking).
+
+        This should be called in a background thread.
+        """
+        try:
+            # Load logo image
+            logo_path = os.path.join(RESOURCE_DIR, 'logo.png')
+            if not os.path.exists(logo_path):
+                logger.warning(f"Logo not found at {logo_path}, using default icon")
+                # Create a simple default icon if logo missing
+                logo = Image.new('RGB', (64, 64), color='blue')
+            else:
+                logo = Image.open(logo_path)
+
+            # Create icon with on_activated for direct click
+            self.icon = pystray.Icon(
+                name='BAB Cloud PrintHub',
+                icon=logo,
+                title='BAB Cloud PrintHub',
+                menu=self.create_menu(),
+                on_activated=lambda: self._open_fiscal_tools()  # Open modal on direct click
+            )
+
+            logger.info("System tray icon created, starting...")
+            self.icon.run()  # Blocking call
+
+        except Exception as e:
+            logger.error(f"Error in system tray: {e}")
+            raise
+
+    def stop(self):
+        """Stop the system tray icon."""
+        if self.icon:
+            try:
+                self.icon.stop()
+                logger.info("System tray icon stopped")
+            except Exception as e:
+                logger.error(f"Error stopping system tray: {e}")
+
+
+def start_system_tray(config, printer, software, modal_queue) -> threading.Thread:
+    """
+    Start the system tray icon in a background thread.
+
+    Args:
+        config: Full configuration dict
+        printer: Active printer instance
+        software: Active software instance
+        modal_queue: Queue for modal signaling
+
+    Returns:
+        threading.Thread: System tray thread (already started)
+    """
+    tray = SystemTray(config, printer, software, modal_queue)
+    tray_thread = threading.Thread(target=tray.run, daemon=True, name="SystemTray")
+    tray_thread.start()
+
+    logger.info("System tray thread started")
+    return tray_thread

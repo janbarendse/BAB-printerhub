@@ -1,0 +1,94 @@
+{
+  "software": {
+    "active": "odoo",
+    "odoo": {
+      "enabled": true,
+      "credentials_file": "odoo_credentials_encrypted.json",
+      "polling_interval_seconds": 3,
+      "last_order_id": 446,
+      "payment_methods": {
+        "Cash punda": "00",
+        "Cheque": "01",
+        "Credit Card": "02",
+        "Swipe punda": "03",
+        "Credit note": "04",
+        "Voucher": "05",
+        "Customer Account": "06",
+        "other_2": "07",
+        "other_3": "08",
+        "other_4": "09",
+        "donations": "10"
+      }
+    },
+    "tcpos": {
+      "enabled": false,
+      "transactions_folder": "D:\\TCpos\\FrontEnd\\Transactions",
+      "last_order_id": 0
+    },
+    "simphony": {
+      "enabled": false,
+      "connection_string": "",
+      "last_order_id": 0
+    },
+    "quickbooks": {
+      "enabled": false,
+      "company_file": "",
+      "last_order_id": 0
+    }
+  },
+  "printer": {
+    "active": "cts310ii",
+    "cts310ii": {
+      "enabled": true,
+      "com_port": "COM4",
+      "baud_rate": 9600,
+      "timeout": 5
+    },
+    "star": {
+      "enabled": false,
+      "com_port": null,
+      "baud_rate": 9600
+    },
+    "citizen": {
+      "enabled": false,
+      "com_port": null,
+      "baud_rate": 9600
+    },
+    "epson": {
+      "enabled": false,
+      "com_port": null,
+      "baud_rate": 9600
+    }
+  },
+  "client": {
+    "NKF": {
+      "source": "A",
+      "crib_number": "122202235",
+      "cash_register": "11"
+    }
+  },
+  "miscellaneous": {
+    "default_client_name": "Regular client",
+    "default_client_crib": "1000000000"
+  },
+  "polling": {
+    "printer_retry_interval_seconds": 5,
+    "software_retry_interval_seconds": 10
+  },
+  "wordpress": {
+    "enabled": false,
+    "url": "https://babcloud.linux",
+    "poll_interval": 5,
+    "trigger_endpoint": "/wp-content/zreport.flag",
+    "complete_endpoint": "/zreport-complete.php"
+  },
+  "fiscal_tools": {
+    "Z_report_from": "2025-12-01",
+    "last_z_report_print_time": "2025-12-20T20:57:48.505623"
+  },
+  "system": {
+    "single_instance": true,
+    "log_level": "INFO",
+    "log_file": "log.log"
+  }
+}

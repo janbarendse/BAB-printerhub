@@ -1,0 +1,31 @@
+# BAB-Cloud PrintHub Bridge Requirements
+# This is a duplicate of the root requirements.txt for convenience
+
+# Build tools
+pyinstaller==6.10.0
+
+# Serial communication
+pyserial==3.5
+
+# XML parsing
+xmltodict==0.13.0
+
+# UI
+pywebview>=4.4.1
+pystray==0.19.5
+Pillow>=10.4.0
+
+# Windows integration
+pythonnet>=3.0.0
+pywin32>=306
+
+# Security
+cryptography>=43.0.1
+
+# HTTP
+requests>=2.32.3
+urllib3>=2.0.0
+
+# Utilities
+python-dateutil>=2.8.2
+packaging>=23.0
