@@ -73,6 +73,13 @@ function babcloud_init() {
     BABCloud_REST_API::init();
     BABCloud_Shortcodes::init();
     BABCloud_Admin_UI::init();
+
+    // Disable Voxel frontend forms for printer CPT (read-only access)
+    add_filter('voxel/post-types/printer/can-create-post', '__return_false');
+    add_filter('voxel/post-types/printer/can-edit-post', function($can_edit, $post) {
+        // Only admins can edit via Voxel
+        return current_user_can('manage_options');
+    }, 10, 2);
 }
 add_action('plugins_loaded', 'babcloud_init');
 
@@ -91,11 +98,11 @@ add_filter('plugin_action_links_' . plugin_basename(__FILE__), 'babcloud_add_set
  */
 function babcloud_get_printer_by_device_id($device_id) {
     $args = array(
-        'post_type' => 'babcloud_printer',
+        'post_type' => 'printer',
         'posts_per_page' => 1,
         'meta_query' => array(
             array(
-                'key' => '_device_id',
+                'key' => 'device_id',
                 'value' => sanitize_text_field($device_id),
                 'compare' => '='
             )
@@ -117,7 +124,7 @@ function babcloud_get_printer_by_device_id($device_id) {
 function babcloud_user_owns_printer($user_id, $printer_id) {
     $printer = get_post($printer_id);
 
-    if (!$printer || $printer->post_type !== 'babcloud_printer') {
+    if (!$printer || $printer->post_type !== 'printer') {
         return false;
     }
 

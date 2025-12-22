@@ -31,10 +31,10 @@ class BABCloud_Auth {
         $hash = hash('sha256', $token);
 
         // Store hash in printer meta
-        update_post_meta($printer_id, '_device_token_hash', $hash);
+        update_post_meta($printer_id, 'device_token_hash', $hash);
 
         // Store generation timestamp
-        update_post_meta($printer_id, '_token_generated_at', current_time('mysql'));
+        update_post_meta($printer_id, 'token_generated_at', current_time('mysql'));
 
         // Return the token (this is the ONLY time it's visible)
         return $token;
@@ -56,7 +56,7 @@ class BABCloud_Auth {
         }
 
         // Get stored token hash
-        $stored_hash = get_post_meta($printer->ID, '_device_token_hash', true);
+        $stored_hash = get_post_meta($printer->ID, 'device_token_hash', true);
 
         if (empty($stored_hash)) {
             return false;
@@ -81,8 +81,8 @@ class BABCloud_Auth {
      */
     public static function regenerate_device_token($printer_id) {
         // Delete old token
-        delete_post_meta($printer_id, '_device_token_hash');
-        delete_post_meta($printer_id, '_token_generated_at');
+        delete_post_meta($printer_id, 'device_token_hash');
+        delete_post_meta($printer_id, 'token_generated_at');
 
         // Generate new token
         return self::generate_device_token($printer_id);

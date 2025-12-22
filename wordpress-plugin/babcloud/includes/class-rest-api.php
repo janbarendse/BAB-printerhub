@@ -164,7 +164,7 @@ class BABCloud_REST_API {
         $printer = $request->get_param('_printer_object');
 
         // Get pending command from meta
-        $pending_command = get_post_meta($printer->ID, '_pending_command', true);
+        $pending_command = get_post_meta($printer->ID, 'pending_command', true);
 
         if (empty($pending_command)) {
             return new WP_REST_Response(array(
@@ -195,8 +195,8 @@ class BABCloud_REST_API {
 
         // Simple approach like clear-pending-command.php - just clear it
         // Clear pending command
-        delete_post_meta($printer->ID, '_pending_command');
-        update_post_meta($printer->ID, '_command_status', 'completed');
+        delete_post_meta($printer->ID, 'pending_command');
+        update_post_meta($printer->ID, 'command_status', 'completed');
 
         return new WP_REST_Response(array(
             'success' => true,
@@ -230,20 +230,20 @@ class BABCloud_REST_API {
         }
 
         // Update last_seen timestamp
-        update_post_meta($printer->ID, '_last_seen', current_time('mysql'));
+        update_post_meta($printer->ID, 'last_seen', current_time('mysql'));
 
         // Update hub version if provided
         if ($hub_version) {
-            update_post_meta($printer->ID, '_hub_version', sanitize_text_field($hub_version));
+            update_post_meta($printer->ID, 'hub_version', sanitize_text_field($hub_version));
         }
 
         // Update printer model if provided
         if ($printer_model) {
-            update_post_meta($printer->ID, '_printer_model', sanitize_text_field($printer_model));
+            update_post_meta($printer->ID, 'printer_model', sanitize_text_field($printer_model));
         }
 
         // Check license validity
-        $license_expiry = get_post_meta($printer->ID, '_license_expiry', true);
+        $license_expiry = get_post_meta($printer->ID, 'license_expiry', true);
         $license_valid = true;
         $days_remaining = null;
 
@@ -258,7 +258,7 @@ class BABCloud_REST_API {
             }
         }
 
-        update_post_meta($printer->ID, '_license_valid', $license_valid ? '1' : '0');
+        update_post_meta($printer->ID, 'license_valid', $license_valid ? '1' : '0');
 
         return new WP_REST_Response(array(
             'acknowledged' => true,
@@ -274,7 +274,7 @@ class BABCloud_REST_API {
     public static function check_license($request) {
         $printer = $request->get_param('_printer_object');
 
-        $license_expiry = get_post_meta($printer->ID, '_license_expiry', true);
+        $license_expiry = get_post_meta($printer->ID, 'license_expiry', true);
         $license_valid = true;
         $days_remaining = null;
 
@@ -301,7 +301,7 @@ class BABCloud_REST_API {
      */
     private static function create_command($printer, $command_type, $params = array()) {
         // Check if PrintHub bridge is online (heartbeat within last 3 minutes)
-        $last_seen = get_post_meta($printer->ID, '_last_seen', true);
+        $last_seen = get_post_meta($printer->ID, 'last_seen', true);
 
         if (empty($last_seen)) {
             return new WP_Error(
@@ -329,7 +329,7 @@ class BABCloud_REST_API {
         }
 
         // Check if there's already a pending command
-        $existing_command = get_post_meta($printer->ID, '_pending_command', true);
+        $existing_command = get_post_meta($printer->ID, 'pending_command', true);
 
         if (!empty($existing_command)) {
             // Decode the existing command to check its timestamp
@@ -343,9 +343,9 @@ class BABCloud_REST_API {
                 // Auto-clear commands older than 2 minutes (120 seconds)
                 if ($age_seconds > 120) {
                     // Command has timed out - clear it
-                    delete_post_meta($printer->ID, '_pending_command');
-                    update_post_meta($printer->ID, '_command_status', 'timeout');
-                    update_post_meta($printer->ID, '_command_error', 'Command timed out after 2 minutes without completion');
+                    delete_post_meta($printer->ID, 'pending_command');
+                    update_post_meta($printer->ID, 'command_status', 'timeout');
+                    update_post_meta($printer->ID, 'command_error', 'Command timed out after 2 minutes without completion');
 
                     error_log("BABCloud: Cleared timed-out command (age: {$age_seconds}s) for printer {$printer->ID}");
                     // Continue to create new command below
@@ -363,7 +363,7 @@ class BABCloud_REST_API {
                 }
             } else {
                 // Invalid command format - clear it
-                delete_post_meta($printer->ID, '_pending_command');
+                delete_post_meta($printer->ID, 'pending_command');
             }
         }
 
@@ -379,10 +379,10 @@ class BABCloud_REST_API {
         );
 
         // Store command as pending
-        update_post_meta($printer->ID, '_pending_command', json_encode($command));
-        update_post_meta($printer->ID, '_command_status', 'pending');
-        delete_post_meta($printer->ID, '_command_result');
-        delete_post_meta($printer->ID, '_command_error');
+        update_post_meta($printer->ID, 'pending_command', json_encode($command));
+        update_post_meta($printer->ID, 'command_status', 'pending');
+        delete_post_meta($printer->ID, 'command_result');
+        delete_post_meta($printer->ID, 'command_error');
 
         return array(
             'success' => true,
@@ -521,7 +521,7 @@ class BABCloud_REST_API {
         $command_id = $request->get_param('command_id');
 
         // Get pending command
-        $pending_command = get_post_meta($printer->ID, '_pending_command', true);
+        $pending_command = get_post_meta($printer->ID, 'pending_command', true);
 
         if (!empty($pending_command)) {
             $command = json_decode($pending_command, true);
@@ -536,9 +536,9 @@ class BABCloud_REST_API {
         }
 
         // Check completed/failed status
-        $status = get_post_meta($printer->ID, '_command_status', true);
-        $result = get_post_meta($printer->ID, '_command_result', true);
-        $error = get_post_meta($printer->ID, '_command_error', true);
+        $status = get_post_meta($printer->ID, 'command_status', true);
+        $result = get_post_meta($printer->ID, 'command_result', true);
+        $error = get_post_meta($printer->ID, 'command_error', true);
 
         if ($result) {
             $result = json_decode($result, true);

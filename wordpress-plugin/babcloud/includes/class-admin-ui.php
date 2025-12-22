@@ -19,10 +19,11 @@ class BABCloud_Admin_UI {
         }
 
         add_action('admin_menu', array(__CLASS__, 'add_admin_menu'));
-        add_action('add_meta_boxes', array(__CLASS__, 'add_meta_boxes'));
-        add_action('save_post_babcloud_printer', array(__CLASS__, 'save_printer_meta'), 10, 2);
-        add_filter('manage_babcloud_printer_posts_columns', array(__CLASS__, 'custom_columns'));
-        add_action('manage_babcloud_printer_posts_custom_column', array(__CLASS__, 'custom_column_content'), 10, 2);
+        // Only add token management meta box - Voxel manages other fields
+        add_action('add_meta_boxes', array(__CLASS__, 'add_token_meta_box'));
+        add_action('save_post_printer', array(__CLASS__, 'save_token_meta'), 10, 2);
+        add_filter('manage_printer_posts_columns', array(__CLASS__, 'custom_columns'));
+        add_action('manage_printer_posts_custom_column', array(__CLASS__, 'custom_column_content'), 10, 2);
         add_action('admin_notices', array(__CLASS__, 'display_token_notice'));
     }
 
@@ -45,7 +46,7 @@ class BABCloud_Admin_UI {
             __('All Printers', 'babcloud'),
             __('All Printers', 'babcloud'),
             'edit_posts',
-            'edit.php?post_type=babcloud_printer'
+            'edit.php?post_type=printer'
         );
 
         add_submenu_page(
@@ -53,7 +54,7 @@ class BABCloud_Admin_UI {
             __('Add New', 'babcloud'),
             __('Add New', 'babcloud'),
             'edit_posts',
-            'post-new.php?post_type=babcloud_printer'
+            'post-new.php?post_type=printer'
         );
 
         add_submenu_page(
@@ -73,7 +74,7 @@ class BABCloud_Admin_UI {
      * Printer list page
      */
     public static function printer_list_page() {
-        wp_redirect(admin_url('edit.php?post_type=babcloud_printer'));
+        wp_redirect(admin_url('edit.php?post_type=printer'));
         exit;
     }
 
@@ -85,32 +86,46 @@ class BABCloud_Admin_UI {
     }
 
     /**
-     * Add meta boxes
+     * Add only token management meta box
+     */
+    public static function add_token_meta_box() {
+        add_meta_box(
+            'printer_token',
+            __('BABCloud Device Token', 'babcloud'),
+            array(__CLASS__, 'printer_token_metabox'),
+            'printer',
+            'side',
+            'high'
+        );
+    }
+
+    /**
+     * Old add_meta_boxes - disabled to avoid conflicts with Voxel
      */
     public static function add_meta_boxes() {
         add_meta_box(
-            'babcloud_printer_details',
+            'printer_details',
             __('Printer Details', 'babcloud'),
             array(__CLASS__, 'printer_details_metabox'),
-            'babcloud_printer',
+            'printer',
             'normal',
             'high'
         );
 
         add_meta_box(
-            'babcloud_printer_token',
+            'printer_token',
             __('Device Authentication', 'babcloud'),
             array(__CLASS__, 'printer_token_metabox'),
-            'babcloud_printer',
+            'printer',
             'side',
             'high'
         );
 
         add_meta_box(
-            'babcloud_printer_status',
+            'printer_status',
             __('Status & Activity', 'babcloud'),
             array(__CLASS__, 'printer_status_metabox'),
-            'babcloud_printer',
+            'printer',
             'side',
             'default'
         );
@@ -120,13 +135,13 @@ class BABCloud_Admin_UI {
      * Printer details meta box
      */
     public static function printer_details_metabox($post) {
-        wp_nonce_field('babcloud_save_printer', 'babcloud_printer_nonce');
+        wp_nonce_field('babcloud_save_printer', 'printer_nonce');
 
-        $device_id = get_post_meta($post->ID, '_device_id', true);
-        $device_label = get_post_meta($post->ID, '_device_label', true);
-        $license_key = get_post_meta($post->ID, '_license_key', true);
-        $license_expiry = get_post_meta($post->ID, '_license_expiry', true);
-        $printer_model = get_post_meta($post->ID, '_printer_model', true);
+        $device_id = get_post_meta($post->ID, 'device_id', true);
+        $device_label = get_post_meta($post->ID, 'device_label', true);
+        $license_key = get_post_meta($post->ID, 'license_key', true);
+        $license_expiry = get_post_meta($post->ID, 'license_expiry', true);
+        $printer_model = get_post_meta($post->ID, 'printer_model', true);
 
         ?>
         <table class="form-table">
@@ -145,9 +160,9 @@ class BABCloud_Admin_UI {
                 </td>
             </tr>
             <tr>
-                <th><label for="babcloud_printer_model"><?php _e('Printer Model', 'babcloud'); ?></label></th>
+                <th><label for="printer_model"><?php _e('Printer Model', 'babcloud'); ?></label></th>
                 <td>
-                    <select id="babcloud_printer_model" name="babcloud_printer_model" class="regular-text">
+                    <select id="printer_model" name="printer_model" class="regular-text">
                         <option value="">-- <?php _e('Select Model', 'babcloud'); ?> --</option>
                         <option value="cts310ii" <?php selected($printer_model, 'cts310ii'); ?>>CTS310ii</option>
                         <option value="star" <?php selected($printer_model, 'star'); ?>>Star</option>
@@ -179,8 +194,8 @@ class BABCloud_Admin_UI {
      * Device token meta box
      */
     public static function printer_token_metabox($post) {
-        $token_hash = get_post_meta($post->ID, '_device_token_hash', true);
-        $token_generated = get_post_meta($post->ID, '_token_generated_at', true);
+        $token_hash = get_post_meta($post->ID, 'device_token_hash', true);
+        $token_generated = get_post_meta($post->ID, 'token_generated_at', true);
 
         ?>
         <div style="padding: 10px;">
@@ -204,12 +219,12 @@ class BABCloud_Admin_UI {
      * Printer status meta box
      */
     public static function printer_status_metabox($post) {
-        $last_seen = get_post_meta($post->ID, '_last_seen', true);
-        $hub_version = get_post_meta($post->ID, '_hub_version', true);
-        $last_zreport = get_post_meta($post->ID, '_last_zreport_at', true);
-        $last_xreport = get_post_meta($post->ID, '_last_xreport_at', true);
-        $pending_command = get_post_meta($post->ID, '_pending_command', true);
-        $command_status = get_post_meta($post->ID, '_command_status', true);
+        $last_seen = get_post_meta($post->ID, 'last_seen', true);
+        $hub_version = get_post_meta($post->ID, 'hub_version', true);
+        $last_zreport = get_post_meta($post->ID, 'last_zreport_at', true);
+        $last_xreport = get_post_meta($post->ID, 'last_xreport_at', true);
+        $pending_command = get_post_meta($post->ID, 'pending_command', true);
+        $command_status = get_post_meta($post->ID, 'command_status', true);
 
         $is_online = false;
         if ($last_seen) {
@@ -258,11 +273,43 @@ class BABCloud_Admin_UI {
     }
 
     /**
-     * Save printer meta
+     * Save only token generation - Voxel handles other fields
+     */
+    public static function save_token_meta($post_id, $post) {
+        // Check autosave
+        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
+            return;
+        }
+
+        // Check permissions
+        if (!current_user_can('edit_post', $post_id)) {
+            return;
+        }
+
+        // Check if token exists
+        $existing_token = get_post_meta($post_id, 'device_token_hash', true);
+
+        // Generate token if:
+        // 1. No token exists (first save)
+        // 2. Regenerate button was clicked
+        $regenerate = isset($_POST['babcloud_regenerate_token']) && $_POST['babcloud_regenerate_token'] == '1';
+
+        if (!$existing_token || $regenerate) {
+            $token = BABCloud_Auth::generate_device_token($post_id);
+
+            // Store token in transient for display on next page load
+            if ($token) {
+                set_transient('babcloud_new_token_' . $post_id, $token, 300); // 5 minute expiry
+            }
+        }
+    }
+
+    /**
+     * Old save_printer_meta - disabled, Voxel handles field saving
      */
     public static function save_printer_meta($post_id, $post) {
         // Check nonce
-        if (!isset($_POST['babcloud_printer_nonce']) || !wp_verify_nonce($_POST['babcloud_printer_nonce'], 'babcloud_save_printer')) {
+        if (!isset($_POST['printer_nonce']) || !wp_verify_nonce($_POST['printer_nonce'], 'babcloud_save_printer')) {
             return;
         }
 
@@ -278,11 +325,11 @@ class BABCloud_Admin_UI {
 
         // Save meta fields
         $fields = array(
-            'device_id' => '_device_id',
-            'device_label' => '_device_label',
-            'license_key' => '_license_key',
-            'license_expiry' => '_license_expiry',
-            'printer_model' => '_printer_model',
+            'device_id' => 'device_id',
+            'device_label' => 'device_label',
+            'license_key' => 'license_key',
+            'license_expiry' => 'license_expiry',
+            'printer_model' => 'printer_model',
         );
 
         foreach ($fields as $field => $meta_key) {
@@ -293,7 +340,7 @@ class BABCloud_Admin_UI {
 
         // Generate or regenerate token
         $regenerate = isset($_POST['babcloud_regenerate_token']) && $_POST['babcloud_regenerate_token'] == '1';
-        $existing_token = get_post_meta($post_id, '_device_token_hash', true);
+        $existing_token = get_post_meta($post_id, 'device_token_hash', true);
 
         if (!$existing_token || $regenerate) {
             $token = BABCloud_Auth::generate_device_token($post_id);
@@ -311,7 +358,7 @@ class BABCloud_Admin_UI {
     public static function display_token_notice() {
         // Check if we're on a printer edit page
         $screen = get_current_screen();
-        if (!$screen || $screen->post_type !== 'babcloud_printer' || $screen->base !== 'post') {
+        if (!$screen || $screen->post_type !== 'printer' || $screen->base !== 'post') {
             return;
         }
 
@@ -367,12 +414,12 @@ class BABCloud_Admin_UI {
     public static function custom_column_content($column, $post_id) {
         switch ($column) {
             case 'device_id':
-                $device_id = get_post_meta($post_id, '_device_id', true);
+                $device_id = get_post_meta($post_id, 'device_id', true);
                 echo $device_id ? esc_html($device_id) : '—';
                 break;
 
             case 'status':
-                $last_seen = get_post_meta($post_id, '_last_seen', true);
+                $last_seen = get_post_meta($post_id, 'last_seen', true);
                 if ($last_seen) {
                     $last_seen_time = strtotime($last_seen);
                     $now = current_time('timestamp');
@@ -389,7 +436,7 @@ class BABCloud_Admin_UI {
                 break;
 
             case 'last_seen':
-                $last_seen = get_post_meta($post_id, '_last_seen', true);
+                $last_seen = get_post_meta($post_id, 'last_seen', true);
                 if ($last_seen) {
                     $timestamp = strtotime($last_seen);
                     echo human_time_diff($timestamp, current_time('timestamp')) . ' ago';
@@ -399,7 +446,7 @@ class BABCloud_Admin_UI {
                 break;
 
             case 'license':
-                $license_expiry = get_post_meta($post_id, '_license_expiry', true);
+                $license_expiry = get_post_meta($post_id, 'license_expiry', true);
                 if ($license_expiry) {
                     $expiry_date = strtotime($license_expiry);
                     $now = current_time('timestamp');

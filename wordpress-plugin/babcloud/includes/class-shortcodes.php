@@ -532,7 +532,7 @@ CSS;
         }
 
         // Check printer status (bridge must be active within last 3 minutes)
-        $last_seen = get_post_meta($printer->ID, '_last_seen', true);
+        $last_seen = get_post_meta($printer->ID, 'last_seen', true);
         $is_online = false;
         $bridge_active = false;
         $offline_message = '';
@@ -731,7 +731,7 @@ CSS;
         }
 
         // Check printer status (bridge must be active within last 3 minutes)
-        $last_seen = get_post_meta($printer->ID, '_last_seen', true);
+        $last_seen = get_post_meta($printer->ID, 'last_seen', true);
         $is_online = false;
         $bridge_active = false;
         $offline_message = '';

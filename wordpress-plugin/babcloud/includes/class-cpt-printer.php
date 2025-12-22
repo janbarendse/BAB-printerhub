@@ -12,71 +12,40 @@ class BABCloud_CPT_Printer {
 
     /**
      * Initialize CPT
+     * Note: We use the existing Voxel-managed 'printer' CPT, not creating our own
      */
     public static function init() {
-        add_action('init', array(__CLASS__, 'register'));
+        // Do NOT register the post type - Voxel already manages 'printer' CPT
         add_action('init', array(__CLASS__, 'register_meta_fields'));
-    }
-
-    /**
-     * Register the printer post type
-     */
-    public static function register() {
-        $labels = array(
-            'name' => __('Printers', 'babcloud'),
-            'singular_name' => __('Printer', 'babcloud'),
-            'menu_name' => __('Printers', 'babcloud'),
-            'add_new' => __('Add New', 'babcloud'),
-            'add_new_item' => __('Add New Printer', 'babcloud'),
-            'edit_item' => __('Edit Printer', 'babcloud'),
-            'new_item' => __('New Printer', 'babcloud'),
-            'view_item' => __('View Printer', 'babcloud'),
-            'search_items' => __('Search Printers', 'babcloud'),
-            'not_found' => __('No printers found', 'babcloud'),
-            'not_found_in_trash' => __('No printers found in trash', 'babcloud'),
-        );
-
-        $args = array(
-            'labels' => $labels,
-            'public' => false,
-            'show_ui' => true,
-            'show_in_menu' => false, // We'll add custom menu
-            'show_in_rest' => false,
-            'has_archive' => false,
-            'hierarchical' => false,
-            'supports' => array('title', 'author'),
-            'capability_type' => 'post',
-            'map_meta_cap' => true,
-        );
-
-        register_post_type('babcloud_printer', $args);
+        add_action('pre_get_posts', array(__CLASS__, 'filter_printer_queries'));
     }
 
     /**
      * Register meta fields for REST API access
+     * Note: Field names WITHOUT underscore prefix to match Voxel field names
      */
     public static function register_meta_fields() {
         $meta_fields = array(
-            '_device_id',
-            '_device_label',
-            '_device_token_hash',
-            '_license_key',
-            '_license_expiry',
-            '_license_valid',
-            '_last_seen',
-            '_hub_version',
-            '_printer_model',
-            '_pending_command',
-            '_command_status',
-            '_command_result',
-            '_command_error',
-            '_last_zreport_at',
-            '_last_xreport_at',
-            '_token_generated_at',
+            'device_id',
+            'device_label',
+            'device_token_hash',
+            'license_key',
+            'license_expiry',
+            'license_valid',
+            'last_seen',
+            'hub_version',
+            'printer_model',
+            'pending_command',
+            'command_status',
+            'command_result',
+            'command_error',
+            'last_zreport_at',
+            'last_xreport_at',
+            'token_generated_at',
         );
 
         foreach ($meta_fields as $field) {
-            register_post_meta('babcloud_printer', $field, array(
+            register_post_meta('printer', $field, array(
                 'show_in_rest' => false,
                 'single' => true,
                 'type' => 'string',
@@ -85,5 +54,34 @@ class BABCloud_CPT_Printer {
                 }
             ));
         }
+    }
+
+    /**
+     * Filter queries to show only user's own printers (for Voxel frontend access)
+     * Admins see all printers, regular users see only their own
+     */
+    public static function filter_printer_queries($query) {
+        // Only on frontend and for printer queries
+        if (is_admin() || !$query->is_main_query()) {
+            return;
+        }
+
+        if ($query->get('post_type') !== 'printer') {
+            return;
+        }
+
+        // Admins can see all
+        if (current_user_can('manage_options')) {
+            return;
+        }
+
+        // Non-logged in users see nothing
+        if (!is_user_logged_in()) {
+            $query->set('post__in', array(0)); // Force no results
+            return;
+        }
+
+        // Filter by current user as author
+        $query->set('author', get_current_user_id());
     }
 }
