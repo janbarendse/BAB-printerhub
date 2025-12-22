@@ -69,10 +69,33 @@ class FiscalToolsAPI:
         self.config = config
         self.window = None  # Set after window creation
 
+        # Check if cloud mode is enabled
+        self.is_cloud_mode = config.get('mode') == 'cloud' and config.get('babportal', {}).get('enabled', False)
+
+        # Initialize WordPress command sender for cloud mode
+        self.wp_sender = None
+        if self.is_cloud_mode:
+            try:
+                import sys
+                sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'wordpress'))
+                from wordpress_command_sender import WordPressCommandSender
+                self.wp_sender = WordPressCommandSender(config)
+                logger.info("Cloud mode enabled: Commands will be routed through WordPress API")
+            except Exception as e:
+                logger.error(f"Failed to initialize WordPress command sender: {e}")
+                self.is_cloud_mode = False
+
     def print_x_report(self):
         """Generate X report (non-fiscal daily report)."""
         try:
             logger.info("X-Report triggered from webview UI")
+
+            # Route through WordPress in cloud mode
+            if self.is_cloud_mode and self.wp_sender:
+                logger.info("Cloud mode: Routing X-Report through WordPress API")
+                return self.wp_sender.print_x_report()
+
+            # Local execution
             response = self.printer.print_x_report()
 
             if response.get("success"):
@@ -90,6 +113,12 @@ class FiscalToolsAPI:
         try:
             logger.info("Z-Report (Today) triggered from webview UI")
 
+            # Route through WordPress in cloud mode
+            if self.is_cloud_mode and self.wp_sender:
+                logger.info("Cloud mode: Routing Z-Report through WordPress API")
+                return self.wp_sender.print_z_report()
+
+            # Local execution
             # Update timestamp in config
             from .config_manager import save_config
             now = datetime.datetime.now()
@@ -121,6 +150,13 @@ class FiscalToolsAPI:
         try:
             logger.info(f"Z-Report by date range triggered: {start_date} to {end_date}")
 
+            # Route through WordPress in cloud mode
+            if self.is_cloud_mode and self.wp_sender:
+                logger.info("Cloud mode: Routing Z-Report by Date through WordPress API")
+                # For now, only support single date (WordPress API limitation)
+                return self.wp_sender.print_z_report_by_date(start_date)
+
+            # Local execution
             # Convert string dates to date objects
             start_date_obj = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
             end_date_obj = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
@@ -175,6 +211,12 @@ class FiscalToolsAPI:
             if start_num > end_num:
                 return {"success": False, "error": "Start number must be less than or equal to end number"}
 
+            # Route through WordPress in cloud mode
+            if self.is_cloud_mode and self.wp_sender:
+                logger.info("Cloud mode: Routing Z-Report Range through WordPress API")
+                return self.wp_sender.print_z_report_range(start_num, end_num)
+
+            # Local execution
             response = self.printer.print_z_report_by_number_range(start_num, end_num)
 
             if response.get("success"):
@@ -196,6 +238,13 @@ class FiscalToolsAPI:
         """
         try:
             logger.info(f"Reprint document triggered: {document_number}")
+
+            # Route through WordPress in cloud mode
+            if self.is_cloud_mode and self.wp_sender:
+                logger.info("Cloud mode: Routing Print Check through WordPress API")
+                return self.wp_sender.print_check()
+
+            # Local execution
             response = self.printer.reprint_document(str(document_number))
 
             if response.get("success"):
@@ -212,6 +261,13 @@ class FiscalToolsAPI:
         """Open cash drawer (NO SALE receipt)."""
         try:
             logger.info(f"NO SALE triggered from webview UI{f' - Reason: {reason}' if reason else ''}")
+
+            # Route through WordPress in cloud mode
+            if self.is_cloud_mode and self.wp_sender:
+                logger.info("Cloud mode: Routing No Sale through WordPress API")
+                return self.wp_sender.print_no_sale()
+
+            # Local execution
             response = self.printer.print_no_sale(reason)
 
             if response.get("success"):

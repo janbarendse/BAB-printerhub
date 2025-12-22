@@ -68,8 +68,8 @@
     }
   },
   "miscellaneous": {
-    "default_client_name": "Regular client",
-    "default_client_crib": "1000000000"
+    "default_client_name": "Thanks for shopping",
+    "default_client_crib": "0000000000"
   },
   "polling": {
     "printer_retry_interval_seconds": 5,
@@ -80,8 +80,8 @@
     "enabled": true,
     "url": "https://babcloud.linux",
     "poll_interval": 5,
-    "device_id": "printer-001",
-    "device_token": "c8105d84c88d720549f516839979501a39db596f1bbb8f5ba00580dcf931198b",
+    "device_id": "chichi-printer-1",
+    "device_token": "af8d3cde724cdac65c72772d7d2ea7e2164fe133d0ea17796c92958d092dba5d",
     "api_version": "v1"
   },
   "fiscal_tools": {

@@ -59,6 +59,22 @@ class SystemTray:
         self.modal_queue = modal_queue
         self.icon = None
 
+        # Check if cloud mode is enabled
+        self.is_cloud_mode = config.get('mode') == 'cloud' and config.get('babportal', {}).get('enabled', False)
+
+        # Initialize WordPress command sender for cloud mode
+        self.wp_sender = None
+        if self.is_cloud_mode:
+            try:
+                import sys
+                sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'wordpress'))
+                from wordpress_command_sender import WordPressCommandSender
+                self.wp_sender = WordPressCommandSender(config)
+                logger.info("System tray: Cloud mode enabled, commands will route through WordPress")
+            except Exception as e:
+                logger.error(f"Failed to initialize WordPress command sender: {e}")
+                self.is_cloud_mode = False
+
     def _open_fiscal_tools(self):
         """Signal main thread to open fiscal tools modal."""
         try:
@@ -71,7 +87,15 @@ class SystemTray:
         """Print X report from system tray."""
         try:
             logger.info("X-Report triggered from system tray")
-            result = self.printer.print_x_report()
+
+            # Route through WordPress in cloud mode
+            if self.is_cloud_mode and self.wp_sender:
+                logger.info("Cloud mode: Routing X-Report through WordPress API")
+                result = self.wp_sender.print_x_report()
+            else:
+                # Local execution
+                result = self.printer.print_x_report()
+
             if result.get("success"):
                 logger.info("X-Report printed successfully from system tray")
             else:
@@ -83,7 +107,15 @@ class SystemTray:
         """Print Z report from system tray."""
         try:
             logger.info("Z-Report triggered from system tray")
-            result = self.printer.print_z_report(close_fiscal_day=True)
+
+            # Route through WordPress in cloud mode
+            if self.is_cloud_mode and self.wp_sender:
+                logger.info("Cloud mode: Routing Z-Report through WordPress API")
+                result = self.wp_sender.print_z_report()
+            else:
+                # Local execution
+                result = self.printer.print_z_report(close_fiscal_day=True)
+
             if result.get("success"):
                 logger.info("Z-Report printed successfully from system tray")
             else:
@@ -95,7 +127,15 @@ class SystemTray:
         """Print NO SALE receipt from system tray."""
         try:
             logger.info("NO SALE triggered from system tray")
-            result = self.printer.print_no_sale()
+
+            # Route through WordPress in cloud mode
+            if self.is_cloud_mode and self.wp_sender:
+                logger.info("Cloud mode: Routing NO SALE through WordPress API")
+                result = self.wp_sender.print_no_sale()
+            else:
+                # Local execution
+                result = self.printer.print_no_sale()
+
             if result.get("success"):
                 logger.info("NO SALE printed successfully from system tray")
             else:
