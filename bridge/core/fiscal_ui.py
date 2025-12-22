@@ -417,8 +417,8 @@ def _open_fiscal_tools_modal_original(printer, config):
         }}
     </style>
 </head>
-<body class="bg-gray-100 p-3">
-    <div class="bg-white rounded-2xl shadow-2xl max-w-4xl mx-auto">
+<body class="bg-white m-0 p-0" style="overflow: hidden;">
+    <div class="bg-white max-w-4xl mx-auto" style="height: 100vh; display: flex; flex-direction: column; overflow: hidden;">
 
         <!-- Header with Logo -->
         <div class="bg-gradient-to-r from-red-700 to-red-800 p-4 rounded-t-2xl">
@@ -459,7 +459,7 @@ def _open_fiscal_tools_modal_original(printer, config):
         </div>
 
         <!-- Main Content -->
-        <div class="p-4 space-y-4">
+        <div class="p-4 space-y-4" style="flex: 1; overflow-y: auto; overflow-x: hidden;">
 
             <!-- Primary Actions - Today's Reports -->
             <div class="space-y-3">
@@ -544,7 +544,7 @@ def _open_fiscal_tools_modal_original(printer, config):
         </div>
 
         <!-- Footer -->
-        <div class="bg-gray-50 px-4 py-3 rounded-b-2xl border-t border-gray-200">
+        <div class="bg-gray-50 px-4 py-3 border-t border-gray-200" style="flex-shrink: 0;">
             <button onclick="closeModal()" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2.5 rounded-lg transition duration-150">
                 Close
             </button>

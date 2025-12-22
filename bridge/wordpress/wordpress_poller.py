@@ -299,8 +299,18 @@ class BABPortalPoller:
         Returns:
             dict: Result with success, result, error
         """
+        # Defensive check: ensure command is a dict
+        if not isinstance(command, dict):
+            logger.error(f"Invalid command format: expected dict, got {type(command)}")
+            return {"success": False, "error": "Invalid command format"}
+
         command_type = command.get('command_type')
         params = command.get('params', {})
+
+        # Defensive check: ensure params is a dict
+        if not isinstance(params, dict):
+            logger.warning(f"Invalid params format: expected dict, got {type(params)}, using empty dict")
+            params = {}
 
         logger.info(f"Executing command: {command_type}")
 
