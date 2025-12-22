@@ -33,6 +33,9 @@ if sys.version_info < (3, 13) or sys.version_info >= (3, 14):
 # Setup logging
 from logger_module import logger
 
+# Import version info
+from version import VERSION
+
 # Queue for main thread communication (for modal UI)
 modal_queue = queue.Queue()
 
@@ -59,7 +62,7 @@ def main():
     """
 
     logger.info("=" * 60)
-    logger.info("BAB-Cloud PrintHub v2026 Starting...")
+    logger.info(f"BAB-Cloud PrintHub v{VERSION} Starting...")
     logger.info("=" * 60)
 
     # =========================================================================
@@ -174,7 +177,7 @@ def main():
     # =========================================================================
     logger.info("[7/7] Main loop ready")
     logger.info("=" * 60)
-    logger.info("BAB-Cloud PrintHub is running")
+    logger.info(f"BAB-Cloud PrintHub v{VERSION} is running")
     logger.info("Check system tray for application icon")
     logger.info("=" * 60)
 

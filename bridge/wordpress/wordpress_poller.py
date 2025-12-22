@@ -18,6 +18,18 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 
+# Import version info
+import os
+import sys
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+try:
+    from version import VERSION
+except ImportError:
+    VERSION = "1.01"  # Fallback if import fails
+
 
 class BABPortalPoller:
     """Handles polling BABPortal REST API for printer commands."""
@@ -423,7 +435,7 @@ class BABPortalPoller:
 
             payload = {
                 'status': 'online',
-                'hub_version': '1.00',
+                'hub_version': VERSION,
                 'printer_model': self.config.get('printer', {}).get('active', '')
             }
 
