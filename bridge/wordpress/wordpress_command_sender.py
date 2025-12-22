@@ -106,18 +106,27 @@ class WordPressCommandSender:
         """Queue Z-Report via WordPress."""
         return self._send_command('zreport')
 
-    def print_check(self):
+    def print_check(self, document_number=None):
         """Queue Print Check via WordPress."""
-        return self._send_command('print_check')
+        params = {}
+        if document_number:
+            params['document_number'] = str(document_number)
+        return self._send_command('print_check', params)
 
-    def print_no_sale(self):
+    def print_no_sale(self, reason=""):
         """Queue No Sale via WordPress."""
-        return self._send_command('no_sale')
+        params = {}
+        if reason:
+            params['reason'] = reason
+        return self._send_command('no_sale', params)
 
     def print_z_report_range(self, from_z, to_z):
         """Queue Z-Report Range via WordPress."""
         return self._send_command('zreport_range', {'from_z': from_z, 'to_z': to_z})
 
-    def print_z_report_by_date(self, date_str):
-        """Queue Z-Report by Date via WordPress."""
-        return self._send_command('zreport_date', {'date': date_str})
+    def print_z_report_by_date(self, start_date, end_date=None):
+        """Queue Z-Report by Date Range via WordPress."""
+        params = {'start_date': start_date}
+        if end_date:
+            params['end_date'] = end_date
+        return self._send_command('zreport_date', params)

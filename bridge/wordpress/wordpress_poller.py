@@ -319,7 +319,11 @@ class BABPortalPoller:
                 result = self.printer.print_x_report()
 
             elif command_type == 'print_check':
-                result = self.printer.print_check()
+                document_number = params.get('document_number')
+                if document_number:
+                    result = self.printer.reprint_document(str(document_number))
+                else:
+                    result = self.printer.print_check()
 
             elif command_type == 'zreport_range':
                 from_z = params.get('from_z')
@@ -338,7 +342,8 @@ class BABPortalPoller:
                 result = self.printer.print_z_report_by_date(start_date, end_date)
 
             elif command_type == 'no_sale':
-                result = self.printer.print_no_sale()
+                reason = params.get('reason', '')
+                result = self.printer.print_no_sale(reason)
 
             else:
                 result = {"success": False, "error": f"Unknown command type: {command_type}"}

@@ -153,8 +153,7 @@ class FiscalToolsAPI:
             # Route through WordPress in cloud mode
             if self.is_cloud_mode and self.wp_sender:
                 logger.info("Cloud mode: Routing Z-Report by Date through WordPress API")
-                # For now, only support single date (WordPress API limitation)
-                return self.wp_sender.print_z_report_by_date(start_date)
+                return self.wp_sender.print_z_report_by_date(start_date, end_date)
 
             # Local execution
             # Convert string dates to date objects
@@ -242,7 +241,7 @@ class FiscalToolsAPI:
             # Route through WordPress in cloud mode
             if self.is_cloud_mode and self.wp_sender:
                 logger.info("Cloud mode: Routing Print Check through WordPress API")
-                return self.wp_sender.print_check()
+                return self.wp_sender.print_check(document_number)
 
             # Local execution
             response = self.printer.reprint_document(str(document_number))
@@ -265,7 +264,7 @@ class FiscalToolsAPI:
             # Route through WordPress in cloud mode
             if self.is_cloud_mode and self.wp_sender:
                 logger.info("Cloud mode: Routing No Sale through WordPress API")
-                return self.wp_sender.print_no_sale()
+                return self.wp_sender.print_no_sale(reason)
 
             # Local execution
             response = self.printer.print_no_sale(reason)
