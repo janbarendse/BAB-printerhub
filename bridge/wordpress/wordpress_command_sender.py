@@ -51,6 +51,7 @@ class WordPressCommandSender:
             dict: Response with success/error
         """
         if not all([self.wordpress_url, self.device_id, self.device_token]):
+            logger.error(f"Portal API not configured - URL: {self.wordpress_url}, Device ID: {self.device_id}, Token present: {bool(self.device_token)}")
             return {"success": False, "error": "Portal API not configured"}
 
         url = f"{self.wordpress_url}/wp-json/babcloud/v1/printer/{self.device_id}/trigger/{command_type}"
@@ -63,7 +64,10 @@ class WordPressCommandSender:
         payload = params or {}
 
         try:
-            logger.info(f"Sending command to WordPress: {command_type}")
+            logger.info(f"Sending command to Portal: {command_type}")
+            logger.debug(f"  URL: {url}")
+            logger.debug(f"  Device ID: {self.device_id}")
+            logger.debug(f"  Token (first 10 chars): {self.device_token[:10] if self.device_token else 'None'}...")
             response = requests.post(url, json=payload, headers=headers, verify=False, timeout=5)
 
             if response.status_code == 200:
@@ -76,6 +80,13 @@ class WordPressCommandSender:
                 }
             else:
                 logger.error(f"Failed to queue command: {response.status_code}")
+                if response.status_code == 401:
+                    logger.error("  Authentication failed - check device_token in config.json and device_token_hash in WordPress")
+                try:
+                    error_data = response.json()
+                    logger.error(f"  Response: {error_data}")
+                except:
+                    logger.error(f"  Response text: {response.text}")
                 return {
                     "success": False,
                     "error": f"Failed to queue command: {response.status_code}"

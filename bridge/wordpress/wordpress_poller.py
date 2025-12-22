@@ -338,7 +338,7 @@ class BABPortalPoller:
                 result = self.printer.print_z_report_by_date(start_date, end_date)
 
             elif command_type == 'no_sale':
-                result = self.printer.open_cash_drawer()
+                result = self.printer.print_no_sale()
 
             else:
                 result = {"success": False, "error": f"Unknown command type: {command_type}"}
