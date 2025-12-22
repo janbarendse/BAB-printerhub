@@ -68,8 +68,8 @@
     }
   },
   "miscellaneous": {
-    "default_client_name": "Thanks for shopping",
-    "default_client_crib": "0000000000"
+    "default_client_name": "Thanks for shopping with us, masha danki!",
+    "default_client_crib": ""
   },
   "polling": {
     "printer_retry_interval_seconds": 5,
@@ -79,10 +79,13 @@
   "babportal": {
     "enabled": true,
     "url": "https://babcloud.linux",
-    "poll_interval": 5,
+    "poll_interval": 3,
     "device_id": "chichi-printer-1",
     "device_token": "af8d3cde724cdac65c72772d7d2ea7e2164fe133d0ea17796c92958d092dba5d",
-    "api_version": "v1"
+    "api_version": "v1",
+    "wordpress_username": "Chichi",
+    "wordpress_app_password": "Vegm a5Vv oGjX Eobd vvZU A9HJ",
+    "encrypted_app_password": false
   },
   "fiscal_tools": {
     "Z_report_from": "2025-12-01",
