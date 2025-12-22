@@ -1683,3 +1683,14 @@ class CTS310iiDriver(BasePrinter):
         except Exception as e:
             logger.error(f"Exception during No Sale: {e}")
             return {"success": False, "error": str(e)}
+
+    def print_check(self) -> Dict[str, Any]:
+        """Print a test check/receipt to verify printer connectivity.
+
+        Reprints document #127 as a test (minimal paper usage).
+
+        Returns:
+            dict: {"success": bool, "error": str}
+        """
+        logger.info("Printing test check (reprinting document #127)...")
+        return self.reprint_document("127")

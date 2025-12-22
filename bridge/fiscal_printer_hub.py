@@ -133,21 +133,27 @@ def main():
         sys.exit(1)
 
     # =========================================================================
-    # Step 5: Start WordPress Poller (Optional)
+    # Step 5: Start BABPortal Poller (Cloud Mode Only)
     # =========================================================================
-    logger.info("[5/7] Checking WordPress configuration...")
-    wordpress_enabled = config.get('wordpress', {}).get('enabled', False)
-    logger.info(f"  WordPress polling: {'enabled' if wordpress_enabled else 'disabled'}")
+    logger.info("[5/7] Checking BABPortal configuration...")
+    app_mode = config.get('mode', 'local')
+    babportal_enabled = config.get('babportal', {}).get('enabled', False)
 
-    wordpress_thread = None
-    if wordpress_enabled:
+    babportal_thread = None
+    if app_mode == 'cloud' and babportal_enabled:
+        logger.info(f"  Mode: cloud - BABPortal polling enabled")
         try:
-            from wordpress.wordpress_poller import start_wordpress_poller
-            wordpress_thread = start_wordpress_poller(config, printer)
-            logger.info("  ✓ WordPress poller started")
+            from wordpress.wordpress_poller import start_babportal_poller
+            babportal_thread = start_babportal_poller(config, printer)
+            logger.info("  ✓ BABPortal poller started")
         except Exception as e:
-            logger.warning(f"  ✗ WordPress poller failed: {e}")
-            # Continue - WordPress is optional
+            logger.warning(f"  ✗ BABPortal poller failed: {e}")
+            # Continue - BABPortal is optional
+    else:
+        if app_mode == 'local':
+            logger.info(f"  Mode: local - BABPortal polling disabled")
+        else:
+            logger.info(f"  BABPortal polling: disabled")
 
     # =========================================================================
     # Step 6: Start System Tray Icon

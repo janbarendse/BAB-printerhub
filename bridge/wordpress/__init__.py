@@ -1,10 +1,10 @@
 """
-WordPress Z-Report Poller Package
+BABPortal Command Poller Package
 
-Temporary bridge to WordPress portal for remote Z-report triggers.
-This will be replaced by the Portal system in a future release.
+Bridge to BABPortal for remote command execution.
+Phase 2 REST API implementation.
 """
 
-from .wordpress_poller import start_wordpress_poller, WordPressPoller
+from .wordpress_poller import start_babportal_poller, BABPortalPoller
 
-__all__ = ['start_wordpress_poller', 'WordPressPoller']
+__all__ = ['start_babportal_poller', 'BABPortalPoller']

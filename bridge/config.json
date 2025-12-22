@@ -1,11 +1,11 @@
 {
   "software": {
-    "active": "odoo",
+    "active": "tcpos",
     "odoo": {
-      "enabled": true,
+      "enabled": false,
       "credentials_file": "odoo_credentials_encrypted.json",
       "polling_interval_seconds": 3,
-      "last_order_id": 446,
+      "last_order_id": 458,
       "payment_methods": {
         "Cash punda": "00",
         "Cheque": "01",
@@ -21,7 +21,7 @@
       }
     },
     "tcpos": {
-      "enabled": false,
+      "enabled": true,
       "transactions_folder": "D:\\TCpos\\FrontEnd\\Transactions",
       "last_order_id": 0
     },
@@ -75,12 +75,14 @@
     "printer_retry_interval_seconds": 5,
     "software_retry_interval_seconds": 10
   },
-  "wordpress": {
-    "enabled": false,
+  "mode": "cloud",
+  "babportal": {
+    "enabled": true,
     "url": "https://babcloud.linux",
     "poll_interval": 5,
-    "trigger_endpoint": "/wp-content/zreport.flag",
-    "complete_endpoint": "/zreport-complete.php"
+    "device_id": "printer-001",
+    "device_token": "c8105d84c88d720549f516839979501a39db596f1bbb8f5ba00580dcf931198b",
+    "api_version": "v1"
   },
   "fiscal_tools": {
     "Z_report_from": "2025-12-01",
