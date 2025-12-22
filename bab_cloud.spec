@@ -11,7 +11,7 @@ Build with: pyinstaller --clean --noconfirm bab_cloud.spec
 block_cipher = None
 
 a = Analysis(
-    ['bridge\\fiscal_printer_hub.py'],
+    ['bridge\\src\\fiscal_printer_hub.py'],
     pathex=[],
     binaries=[],
     datas=[
@@ -21,11 +21,11 @@ a = Analysis(
         # Configuration template
         ('bridge\\config.json', '.'),
 
-        # Include all package folders
-        ('bridge\\core', 'core'),
-        ('bridge\\software', 'software'),
-        ('bridge\\printers', 'printers'),
-        ('bridge\\wordpress', 'wordpress'),
+        # Include all package folders from src/
+        ('bridge\\src\\core', 'src\\core'),
+        ('bridge\\src\\software', 'src\\software'),
+        ('bridge\\src\\printers', 'src\\printers'),
+        ('bridge\\src\\wordpress', 'src\\wordpress'),
     ],
     hiddenimports=[
         # Webview and UI

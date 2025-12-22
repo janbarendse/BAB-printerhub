@@ -1,0 +1,375 @@
+"""
+System tray icon and menu management for BAB-Cloud PrintHub.
+
+Provides a system tray icon with menu for quick access to fiscal tools,
+reports, and application control.
+"""
+
+import os
+import sys
+import logging
+import threading
+import queue
+from PIL import Image
+import pystray
+from pystray import Menu as menu, MenuItem as item
+
+# Import version info
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from src.version import VERSION
+
+logger = logging.getLogger(__name__)
+
+
+# Determine base directory for logo
+if getattr(sys, 'frozen', False):
+    # Running as compiled executable
+    RESOURCE_DIR = sys._MEIPASS  # For bundled resources (logo.png)
+    BASE_DIR = os.path.dirname(sys.executable)  # For user files
+else:
+    # Running as script from src/core/ directory
+    # Need to go up 3 levels: core -> src -> bridge
+    RESOURCE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    BASE_DIR = RESOURCE_DIR
+
+
+class SystemTray:
+    """
+    System tray icon manager.
+
+    Provides a system tray icon with menu for:
+    - Opening fiscal tools modal
+    - Quick X/Z reports
+    - NO SALE operation
+    - Application quit
+    """
+
+    def __init__(self, config, printer, software, modal_queue):
+        """
+        Initialize system tray.
+
+        Args:
+            config: Full configuration dict
+            printer: Active printer instance
+            software: Active software instance
+            modal_queue: Queue for signaling main thread to open modals
+        """
+        self.config = config
+        self.printer = printer
+        self.software = software
+        self.modal_queue = modal_queue
+        self.icon = None
+
+        # Check if cloud mode is enabled
+        self.is_cloud_mode = config.get('mode') == 'cloud' and config.get('babportal', {}).get('enabled', False)
+
+        # Initialize WordPress command sender for cloud mode
+        self.wp_sender = None
+        if self.is_cloud_mode:
+            try:
+                import sys
+                sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'wordpress'))
+                from wordpress_command_sender import WordPressCommandSender
+                self.wp_sender = WordPressCommandSender(config)
+                logger.info("System tray: Cloud mode enabled, commands will route through WordPress")
+            except Exception as e:
+                logger.error(f"Failed to initialize WordPress command sender: {e}")
+                self.is_cloud_mode = False
+
+    def _open_fiscal_tools(self):
+        """Signal main thread to open fiscal tools modal."""
+        try:
+            logger.info("Fiscal Tools requested from system tray")
+            self.modal_queue.put('open_fiscal_tools')
+        except Exception as e:
+            logger.error(f"Error signaling fiscal tools: {e}")
+
+    def _print_x_report(self):
+        """Print X report from system tray."""
+        try:
+            logger.info("X-Report triggered from system tray")
+
+            # Route through WordPress in cloud mode
+            if self.is_cloud_mode and self.wp_sender:
+                logger.info("Cloud mode: Routing X-Report through WordPress API")
+                result = self.wp_sender.print_x_report()
+            else:
+                # Local execution
+                result = self.printer.print_x_report()
+
+            if result.get("success"):
+                logger.info("X-Report printed successfully from system tray")
+            else:
+                logger.warning(f"X-Report failed from system tray: {result.get('error')}")
+        except Exception as e:
+            logger.error(f"Error printing X-Report from system tray: {e}")
+
+    def _print_z_report(self):
+        """Print Z report from system tray."""
+        try:
+            logger.info("Z-Report triggered from system tray")
+
+            # Route through WordPress in cloud mode
+            if self.is_cloud_mode and self.wp_sender:
+                logger.info("Cloud mode: Routing Z-Report through WordPress API")
+                result = self.wp_sender.print_z_report()
+            else:
+                # Local execution
+                result = self.printer.print_z_report(close_fiscal_day=True)
+
+            if result.get("success"):
+                logger.info("Z-Report printed successfully from system tray")
+            else:
+                logger.warning(f"Z-Report failed from system tray: {result.get('error')}")
+        except Exception as e:
+            logger.error(f"Error printing Z-Report from system tray: {e}")
+
+    def _print_no_sale(self):
+        """Print NO SALE receipt from system tray."""
+        try:
+            logger.info("NO SALE triggered from system tray")
+
+            # Route through WordPress in cloud mode
+            if self.is_cloud_mode and self.wp_sender:
+                logger.info("Cloud mode: Routing NO SALE through WordPress API")
+                result = self.wp_sender.print_no_sale()
+            else:
+                # Local execution
+                result = self.printer.print_no_sale()
+
+            if result.get("success"):
+                logger.info("NO SALE printed successfully from system tray")
+            else:
+                logger.warning(f"NO SALE failed from system tray: {result.get('error')}")
+        except Exception as e:
+            logger.error(f"Error printing NO SALE from system tray: {e}")
+
+    def _open_log_window(self):
+        """Open log viewer window."""
+        try:
+            logger.info("Log window requested from system tray")
+            self.modal_queue.put('open_log_window')
+        except Exception as e:
+            logger.error(f"Error signaling log window: {e}")
+
+    def _open_pos_frontend(self):
+        """Open POS frontend (URL for Odoo, executable for TCPOS)."""
+        try:
+            logger.info("POS frontend requested from system tray")
+            active_software = self.config.get('software', {}).get('active', '')
+
+            if active_software == 'odoo':
+                # Open Odoo URL in browser
+                try:
+                    from software.odoo.credentials_handler import load_credentials
+                    # Determine base directory
+                    if getattr(sys, 'frozen', False):
+                        base_dir = os.path.dirname(sys.executable)
+                    else:
+                        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+                    creds = load_credentials(base_dir)
+                    if creds and 'url' in creds:
+                        import webbrowser
+                        webbrowser.open(creds['url'])
+                        logger.info(f"Opening Odoo at {creds['url']}")
+                    else:
+                        logger.warning("Odoo URL not found in credentials")
+                except Exception as e:
+                    logger.error(f"Error opening Odoo URL: {e}")
+
+            elif active_software == 'tcpos':
+                # Launch TCPOS executable
+                tcpos_exe = r"D:\TCpos\FrontEnd\TCPOS.AppStarter.exe"
+                if os.path.exists(tcpos_exe):
+                    import subprocess
+                    subprocess.Popen([tcpos_exe])
+                    logger.info(f"Launching TCPOS from {tcpos_exe}")
+                else:
+                    logger.warning(f"TCPOS executable not found at {tcpos_exe}")
+            else:
+                logger.warning(f"POS frontend not configured for {active_software}")
+
+        except Exception as e:
+            logger.error(f"Error opening POS frontend: {e}")
+
+    def _open_babcloud_portal(self):
+        """Open BABCloud portal in browser with automatic login."""
+        try:
+            import webbrowser
+            import requests
+            import base64
+            from urllib.parse import urljoin
+
+            logger.info("Opening BABCloud portal...")
+
+            # Get WordPress credentials from config
+            wp_config = self.config.get('babportal', {})
+            username = wp_config.get('wordpress_username', '').strip()
+            app_password = wp_config.get('wordpress_app_password', '').strip()
+            base_url = wp_config.get('url', '').rstrip('/')
+
+            if not username or not app_password:
+                logger.error("WordPress credentials not configured. Please add wordpress_username and wordpress_app_password to config.json")
+                webbrowser.open(f"{base_url}/my-printers")
+                return
+
+            try:
+                # Generate autologin token via REST API
+                token_url = f"{base_url}/wp-json/babcloud/v1/autologin/generate-token"
+                auth_string = f"{username}:{app_password}"
+                auth_bytes = auth_string.encode('ascii')
+                auth_b64 = base64.b64encode(auth_bytes).decode('ascii')
+
+                headers = {
+                    'Authorization': f'Basic {auth_b64}'
+                }
+
+                response = requests.post(token_url, headers=headers, timeout=5, verify=False)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    token = data.get('token')
+
+                    # Open browser with autologin token
+                    autologin_url = f"{base_url}/my-printers?autologin_token={token}"
+                    logger.info(f"Opening portal: {autologin_url}")
+                    webbrowser.open(autologin_url)
+                else:
+                    logger.error(f"Failed to generate autologin token: {response.status_code}")
+                    # Fallback: Just open the portal page (user will need to log in manually)
+                    webbrowser.open(f"{base_url}/my-printers")
+
+            except Exception as e:
+                logger.error(f"Error opening portal: {e}")
+                # Fallback: Just open the portal page
+                webbrowser.open(f"{base_url}/my-printers")
+
+        except Exception as e:
+            logger.error(f"Error in _open_babcloud_portal: {e}")
+
+    def _open_settings(self):
+        """Open config settings editor."""
+        try:
+            logger.info("Opening settings editor...")
+
+            # Get config path (same directory as main script)
+            config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
+
+            # Import and launch modal
+            from src.core.config_settings_ui import open_config_settings_modal
+            open_config_settings_modal(config_path, self.config)
+
+        except Exception as e:
+            logger.error(f"Error opening settings: {e}")
+
+    def _quit_application(self):
+        """Quit the application."""
+        try:
+            logger.info("Quit requested from system tray")
+
+            # Stop software integration gracefully
+            if self.software and self.software.running:
+                logger.info(f"Stopping {self.software.get_name()} integration...")
+                self.software.stop()
+
+            # Disconnect printer
+            if self.printer and self.printer.connected:
+                logger.info(f"Disconnecting {self.printer.get_name()} printer...")
+                self.printer.disconnect()
+
+            logger.info("Application shutting down")
+            os._exit(0)
+
+        except Exception as e:
+            logger.error(f"Error during quit: {e}")
+            os._exit(1)
+
+    def create_menu(self) -> menu:
+        """
+        Create the system tray menu.
+
+        Returns:
+            pystray.Menu: Configured menu
+        """
+        # Get active software and printer names for status display
+        active_software = self.config.get('software', {}).get('active', 'unknown').upper()
+        active_printer = self.config.get('printer', {}).get('active', 'unknown').upper()
+
+        return menu(
+            item('Fiscal Tools', self._open_fiscal_tools, default=True),
+            menu.SEPARATOR,
+            item('Access BABCloud Portal', self._open_babcloud_portal),
+            item(f'Open {active_software} POS', self._open_pos_frontend),
+            menu.SEPARATOR,
+            item('Print X-Report', self._print_x_report),
+            item('Print Z-Report', self._print_z_report),
+            menu.SEPARATOR,
+            item('View Logs', self._open_log_window),
+            item('Settings', self._open_settings),
+            item(f'Status: {active_software} > {active_printer}', None, enabled=False),
+            menu.SEPARATOR,
+            item(f'Quit BAB PrintHub v{VERSION}', self._quit_application)
+        )
+
+    def run(self):
+        """
+        Run the system tray icon (blocking).
+
+        This should be called in a background thread.
+        """
+        try:
+            # Load logo image
+            logo_path = os.path.join(RESOURCE_DIR, 'logo.png')
+            if not os.path.exists(logo_path):
+                logger.warning(f"Logo not found at {logo_path}, using default icon")
+                # Create a simple default icon if logo missing
+                logo = Image.new('RGB', (64, 64), color='blue')
+            else:
+                logo = Image.open(logo_path)
+
+            # Create icon with on_activated for direct click
+            self.icon = pystray.Icon(
+                name='BAB Cloud PrintHub',
+                icon=logo,
+                title='BAB Cloud PrintHub',
+                menu=self.create_menu(),
+                on_activated=lambda: self._open_fiscal_tools()  # Open modal on direct click
+            )
+
+            logger.info("System tray icon created, starting...")
+            self.icon.run()  # Blocking call
+
+        except Exception as e:
+            logger.error(f"Error in system tray: {e}")
+            raise
+
+    def stop(self):
+        """Stop the system tray icon."""
+        if self.icon:
+            try:
+                self.icon.stop()
+                logger.info("System tray icon stopped")
+            except Exception as e:
+                logger.error(f"Error stopping system tray: {e}")
+
+
+def start_system_tray(config, printer, software, modal_queue) -> threading.Thread:
+    """
+    Start the system tray icon in a background thread.
+
+    Args:
+        config: Full configuration dict
+        printer: Active printer instance
+        software: Active software instance
+        modal_queue: Queue for modal signaling
+
+    Returns:
+        threading.Thread: System tray thread (already started)
+    """
+    tray = SystemTray(config, printer, software, modal_queue)
+    tray_thread = threading.Thread(target=tray.run, daemon=True, name="SystemTray")
+    tray_thread.start()
+
+    logger.info("System tray thread started")
+    return tray_thread
