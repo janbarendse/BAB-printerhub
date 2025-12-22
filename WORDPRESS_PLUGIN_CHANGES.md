@@ -4,7 +4,52 @@ The WordPress plugin is located at `Z:\babcloud\app\public\wp-content\plugins\ba
 
 ## Latest Changes
 
-### Date: 2025-12-22
+### Date: 2025-12-22 (Update 2 - Shortcode JavaScript Fixes)
+
+**File**: `Z:\babcloud\app\public\wp-content\plugins\babcloud\includes\class-shortcodes.php`
+
+**Change**: Fixed Print Check and No Sale button click handlers to read input values
+
+**Why**: The JavaScript wasn't reading the document number and reason from the input fields, so commands were sent without parameters.
+
+**Code Modified** (lines 172-184 and 227-239):
+
+**Print Check Button** (lines 172-184):
+```javascript
+// OLD:
+babcloud.triggerCommand(deviceId, 'print_check', {}, button);
+
+// NEW:
+var documentNumber = $('#check-number-' + deviceId).val();
+if (!documentNumber) {
+    alert('Please enter a document number');
+    return;
+}
+babcloud.triggerCommand(deviceId, 'print_check', {document_number: documentNumber}, button);
+```
+
+**No Sale Button** (lines 227-239):
+```javascript
+// OLD:
+babcloud.triggerCommand(deviceId, 'no_sale', {}, button);
+
+// NEW:
+var reason = $('#no-sale-reason-' + deviceId).val();
+var params = {};
+if (reason) {
+    params.reason = reason;
+}
+babcloud.triggerCommand(deviceId, 'no_sale', params, button);
+```
+
+**Impact**:
+- Print Check now reads document number from input and sends to API
+- No Sale now reads optional reason from input and sends to API
+- Fixes "not printing, no logs" issue in portal shortcode
+
+---
+
+### Date: 2025-12-22 (Update 1 - Authentication)
 
 **File**: `Z:\babcloud\app\public\wp-content\plugins\babcloud\includes\class-auth.php`
 
