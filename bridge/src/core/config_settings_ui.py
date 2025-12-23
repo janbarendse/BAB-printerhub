@@ -279,6 +279,15 @@ class ConfigAPI:
                             else:
                                 updated_config[section][key] = value
 
+            # Special handling: Update enabled flags when software.active changes
+            if 'software' in changes and 'active' in changes['software']:
+                active_software = changes['software']['active']
+                # Set enabled=true for active software, false for others
+                for software_name in ['odoo', 'tcpos', 'simphony', 'quickbooks']:
+                    if software_name in updated_config['software']:
+                        updated_config['software'][software_name]['enabled'] = (software_name == active_software)
+                logger.info(f"Updated enabled flags: {active_software} enabled, others disabled")
+
             # Save to file
             with open(self.config_path, 'w') as f:
                 json.dump(updated_config, f, indent=2)
@@ -286,8 +295,10 @@ class ConfigAPI:
             logger.info(f"Configuration saved successfully to {self.config_path}")
 
             # Trigger application restart after save
+            # Use a daemon=False thread to ensure it completes even if settings window closes
             import threading
-            threading.Timer(2.0, self._restart_application).start()
+            restart_thread = threading.Thread(target=self._restart_with_delay, daemon=False)
+            restart_thread.start()
 
             return {
                 'success': True,
@@ -302,6 +313,16 @@ class ConfigAPI:
                 'success': False,
                 'error': str(e)
             }
+
+    def _restart_with_delay(self):
+        """Wait 2 seconds then restart (separate method for threading)."""
+        try:
+            import time
+            time.sleep(2)  # Give user time to see success message
+            self._restart_application()
+
+        except Exception as e:
+            logger.error(f"Error in restart delay: {e}")
 
     def _restart_application(self):
         """Restart the application to apply configuration changes."""
