@@ -27,11 +27,8 @@ define('BABCLOUD_PLUGIN_FILE', __FILE__);
  * Plugin activation hook
  */
 function babcloud_activate() {
-    // Register CPT
-    require_once BABCLOUD_PLUGIN_DIR . 'includes/class-cpt-printer.php';
-    BABCloud_CPT_Printer::register();
-
-    // Flush rewrite rules
+    // Note: Voxel already manages the 'printer' CPT, no need to register
+    // Just flush rewrite rules to ensure REST API routes work
     flush_rewrite_rules();
 
     // Create default capabilities if needed
@@ -82,6 +79,37 @@ function babcloud_init() {
     }, 10, 2);
 }
 add_action('plugins_loaded', 'babcloud_init');
+
+/**
+ * Handle autologin via token
+ */
+function babcloud_handle_autologin() {
+    if (isset($_GET['autologin_token'])) {
+        $token = sanitize_text_field($_GET['autologin_token']);
+        $transient_key = 'babcloud_autologin_' . $token;
+
+        // Get user ID from transient
+        $user_id = get_transient($transient_key);
+
+        if ($user_id) {
+            // Delete transient (single use)
+            delete_transient($transient_key);
+
+            // Log user in
+            wp_set_current_user($user_id);
+            wp_set_auth_cookie($user_id, false);
+
+            // Redirect to my-printers without token in URL
+            wp_redirect('/my-printers');
+            exit;
+        } else {
+            // Token invalid or expired - redirect to login
+            wp_redirect('/my-printers');
+            exit;
+        }
+    }
+}
+add_action('init', 'babcloud_handle_autologin');
 
 /**
  * Add settings link on plugin page

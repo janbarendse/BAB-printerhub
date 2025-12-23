@@ -155,6 +155,50 @@ class BABCloud_REST_API {
                 ),
             ),
         ));
+
+        // 12. Autologin token generation
+        register_rest_route(self::NAMESPACE, '/autologin/generate-token', array(
+            'methods' => 'POST',
+            'callback' => array(__CLASS__, 'generate_autologin_token'),
+            'permission_callback' => array(__CLASS__, 'check_app_password_auth'),
+        ));
+    }
+
+    /**
+     * Check Application Password authentication
+     */
+    public static function check_app_password_auth($request) {
+        // WordPress automatically validates Application Passwords
+        // via Basic Auth when is_user_logged_in() is called
+        return is_user_logged_in();
+    }
+
+    /**
+     * Generate single-use autologin token
+     */
+    public static function generate_autologin_token($request) {
+        $user = wp_get_current_user();
+
+        if (!$user || $user->ID === 0) {
+            return new WP_Error(
+                'not_authenticated',
+                __('You must be logged in to generate an autologin token', 'babcloud'),
+                array('status' => 401)
+            );
+        }
+
+        // Generate random token
+        $token = bin2hex(random_bytes(32));
+
+        // Store token as transient (expires in 60 seconds)
+        $transient_key = 'babcloud_autologin_' . $token;
+        set_transient($transient_key, $user->ID, 60);
+
+        return new WP_REST_Response(array(
+            'success' => true,
+            'token' => $token,
+            'expires_in' => 60
+        ), 200);
     }
 
     /**
@@ -424,7 +468,16 @@ class BABCloud_REST_API {
      */
     public static function trigger_print_check($request) {
         $printer = $request->get_param('_printer_object');
-        $result = self::create_command($printer, 'print_check');
+
+        // Get params from JSON body
+        $body = $request->get_json_params();
+        $params = array();
+
+        if (!empty($body) && isset($body['document_number'])) {
+            $params['document_number'] = sanitize_text_field($body['document_number']);
+        }
+
+        $result = self::create_command($printer, 'print_check', $params);
 
         if (is_wp_error($result)) {
             return $result;
@@ -504,7 +557,16 @@ class BABCloud_REST_API {
      */
     public static function trigger_no_sale($request) {
         $printer = $request->get_param('_printer_object');
-        $result = self::create_command($printer, 'no_sale');
+
+        // Get params from JSON body
+        $body = $request->get_json_params();
+        $params = array();
+
+        if (!empty($body) && isset($body['reason'])) {
+            $params['reason'] = sanitize_text_field($body['reason']);
+        }
+
+        $result = self::create_command($printer, 'no_sale', $params);
 
         if (is_wp_error($result)) {
             return $result;
