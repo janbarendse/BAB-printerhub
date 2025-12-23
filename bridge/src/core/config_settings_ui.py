@@ -319,11 +319,17 @@ class ConfigAPI:
                 logger.info(f"Restarting executable: {executable}")
                 subprocess.Popen([executable], cwd=os.path.dirname(executable))
             else:
-                # Running as script
-                python = sys.executable
-                script = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'fiscal_printer_hub.py')
-                logger.info(f"Restarting script: {python} {script}")
-                subprocess.Popen([python, script])
+                # Running as script - need to run as module
+                # Get bridge directory (3 levels up from src/core/config_settings_ui.py)
+                bridge_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                logger.info(f"Restarting from directory: {bridge_dir}")
+
+                # Start new instance as module
+                subprocess.Popen(
+                    [sys.executable, '-m', 'src.fiscal_printer_hub'],
+                    cwd=bridge_dir,
+                    creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
+                )
 
             # Exit current instance
             os._exit(0)
