@@ -253,8 +253,10 @@ class SystemTray:
         try:
             logger.info("Opening settings editor...")
 
-            # Get config path (same directory as main script)
-            config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
+            # Get config path (bridge directory - 3 levels up from src/core/system_tray.py)
+            bridge_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            config_path = os.path.join(bridge_dir, 'config.json')
+            logger.info(f"Config path: {config_path}")
 
             # Import and launch modal
             from src.core.config_settings_ui import open_config_settings_modal
