@@ -284,9 +284,14 @@ class ConfigAPI:
                 json.dump(updated_config, f, indent=2)
 
             logger.info(f"Configuration saved successfully to {self.config_path}")
+
+            # Trigger application restart after save
+            import threading
+            threading.Timer(2.0, self._restart_application).start()
+
             return {
                 'success': True,
-                'message': 'Configuration saved successfully. Restart BAB PrintHub for changes to take effect.'
+                'message': 'Configuration saved successfully. Restarting BAB PrintHub...'
             }
 
         except Exception as e:
@@ -297,6 +302,34 @@ class ConfigAPI:
                 'success': False,
                 'error': str(e)
             }
+
+    def _restart_application(self):
+        """Restart the application to apply configuration changes."""
+        try:
+            import sys
+            import os
+            import subprocess
+
+            logger.info("Restarting application to apply configuration changes...")
+
+            # Get the executable path
+            if getattr(sys, 'frozen', False):
+                # Running as compiled executable
+                executable = sys.executable
+                logger.info(f"Restarting executable: {executable}")
+                subprocess.Popen([executable], cwd=os.path.dirname(executable))
+            else:
+                # Running as script
+                python = sys.executable
+                script = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'fiscal_printer_hub.py')
+                logger.info(f"Restarting script: {python} {script}")
+                subprocess.Popen([python, script])
+
+            # Exit current instance
+            os._exit(0)
+
+        except Exception as e:
+            logger.error(f"Error restarting application: {e}")
 
     def close_window(self):
         """Close the settings window."""
