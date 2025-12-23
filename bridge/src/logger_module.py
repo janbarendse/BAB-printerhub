@@ -14,8 +14,8 @@ if getattr(sys, 'frozen', False):
     # Running as compiled executable
     BASE_DIR = os.path.dirname(sys.executable)
 else:
-    # Running as script
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    # Running as script - go up 2 levels from src/logger_module.py to bridge/
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Create logger
 logger = logging.getLogger('BAB_Cloud_PrintHub')

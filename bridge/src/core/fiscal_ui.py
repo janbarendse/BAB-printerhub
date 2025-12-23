@@ -378,7 +378,8 @@ def _open_fiscal_tools_modal_original(printer, config):
             if getattr(sys, 'frozen', False):
                 logo_path = os.path.join(sys._MEIPASS, 'logo.png')
             else:
-                logo_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logo.png')
+                # Go up 3 levels from src/core/fiscal_ui.py to bridge/
+                logo_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'logo.png')
 
             if os.path.exists(logo_path):
                 with open(logo_path, 'rb') as f:

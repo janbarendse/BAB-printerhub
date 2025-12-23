@@ -5,7 +5,7 @@ REM ============================================================
 REM Start BAB PrintHub with Python 3.13
 REM ============================================================
 
-echo Starting BAB-Cloud PrintHub v1.3...
+echo Starting BAB-Cloud PrintHub v1.4...
 echo.
 
 cd /d "%~dp0"

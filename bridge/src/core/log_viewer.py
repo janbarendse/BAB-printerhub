@@ -205,7 +205,8 @@ def open_log_viewer_window():
             base_dir = os.path.dirname(sys.executable)
             icon_path = os.path.join(sys._MEIPASS, 'logo.png')
         else:
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            # Running as script - go up 3 levels from src/core/log_viewer.py to bridge/
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             icon_path = os.path.join(base_dir, 'logo.png')
 
         log_file_path = os.path.join(base_dir, 'log.log')
