@@ -309,33 +309,80 @@ class ConfigAPI:
             import sys
             import os
             import subprocess
+            import psutil
+            import time
 
             logger.info("Restarting application to apply configuration changes...")
 
-            # Get the executable path
+            # Find and kill the main BAB PrintHub process
+            current_pid = os.getpid()
+            main_process = None
+
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                try:
+                    # Skip the current process (settings window)
+                    if proc.pid == current_pid:
+                        continue
+
+                    cmdline = proc.cmdline()
+                    # Look for the main fiscal_printer_hub process
+                    if cmdline and any('fiscal_printer_hub' in arg for arg in cmdline):
+                        main_process = proc
+                        logger.info(f"Found main process PID {proc.pid}, terminating...")
+                        break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+
+            if main_process:
+                try:
+                    # Terminate gracefully first
+                    main_process.terminate()
+                    # Wait for up to 5 seconds for graceful shutdown
+                    main_process.wait(timeout=5)
+                    logger.info("Main process terminated gracefully")
+                except psutil.TimeoutExpired:
+                    # If it doesn't terminate gracefully, force kill
+                    logger.warning("Main process didn't terminate gracefully, forcing kill...")
+                    main_process.kill()
+                    main_process.wait(timeout=3)
+                    logger.info("Main process killed forcefully")
+
+                # Verify process is actually gone
+                time.sleep(1)
+                if main_process.is_running():
+                    logger.error("Main process still running after kill attempt!")
+                    return
+                else:
+                    logger.info("Verified: Main process is terminated")
+            else:
+                logger.warning("Could not find main BAB PrintHub process to terminate")
+                # Still try to start new instance
+
+            # Start new instance
             if getattr(sys, 'frozen', False):
                 # Running as compiled executable
                 executable = sys.executable
-                logger.info(f"Restarting executable: {executable}")
+                logger.info(f"Starting new executable: {executable}")
                 subprocess.Popen([executable], cwd=os.path.dirname(executable))
             else:
-                # Running as script - need to run as module
-                # Get bridge directory (3 levels up from src/core/config_settings_ui.py)
+                # Running as script - run as module
                 bridge_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-                logger.info(f"Restarting from directory: {bridge_dir}")
+                logger.info(f"Starting new instance from: {bridge_dir}")
 
-                # Start new instance as module
                 subprocess.Popen(
                     [sys.executable, '-m', 'src.fiscal_printer_hub'],
                     cwd=bridge_dir,
                     creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
                 )
 
-            # Exit current instance
+            # Exit settings window
+            logger.info("Settings window closing after restart trigger")
             os._exit(0)
 
         except Exception as e:
             logger.error(f"Error restarting application: {e}")
+            import traceback
+            traceback.print_exc()
 
     def close_window(self):
         """Close the settings window."""
