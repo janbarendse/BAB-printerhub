@@ -314,6 +314,32 @@ class ConfigAPI:
                 'error': str(e)
             }
 
+    def restart_app(self):
+        """
+        Public method to restart the application (callable from JavaScript).
+
+        Returns:
+            dict: {'success': bool, 'message': str}
+        """
+        try:
+            logger.info("Manual restart requested from settings UI")
+
+            # Trigger restart in background thread
+            import threading
+            restart_thread = threading.Thread(target=self._restart_with_delay, daemon=False)
+            restart_thread.start()
+
+            return {
+                'success': True,
+                'message': 'Restarting BAB PrintHub...'
+            }
+        except Exception as e:
+            logger.error(f"Error triggering restart: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
     def _restart_with_delay(self):
         """Wait 2 seconds then restart (separate method for threading)."""
         try:
@@ -375,6 +401,9 @@ class ConfigAPI:
                     return
                 else:
                     logger.info("Verified: Main process is terminated")
+                    # Wait extra time for single instance lock to be released
+                    logger.info("Waiting 2 seconds for lock cleanup...")
+                    time.sleep(2)
             else:
                 logger.warning("Could not find main BAB PrintHub process to terminate")
                 # Still try to start new instance
@@ -390,8 +419,9 @@ class ConfigAPI:
                 bridge_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
                 logger.info(f"Starting new instance from: {bridge_dir}")
 
+                # Use py -3.13 launcher to ensure correct Python version
                 subprocess.Popen(
-                    [sys.executable, '-m', 'src.fiscal_printer_hub'],
+                    ['py', '-3.13', '-m', 'src.fiscal_printer_hub'],
                     cwd=bridge_dir,
                     creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
                 )
@@ -632,13 +662,18 @@ def _open_config_settings_window(config_path, config):
         </div>
 
         <!-- Footer Buttons -->
-        <div class="bg-gray-50 p-6 border-t-2 border-gray-200 flex justify-end space-x-4">
-            <button onclick="closeModal()" class="px-6 py-3 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold rounded-lg transition duration-150">
-                Cancel
+        <div class="bg-gray-50 p-6 border-t-2 border-gray-200 flex justify-between">
+            <button onclick="restartApp()" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition duration-150">
+                Restart App
             </button>
-            <button onclick="saveConfig()" class="px-6 py-3 bg-red-700 hover:bg-red-800 text-white font-semibold rounded-lg transition duration-150">
-                Save Configuration
-            </button>
+            <div class="flex space-x-4">
+                <button onclick="closeModal()" class="px-6 py-3 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold rounded-lg transition duration-150">
+                    Cancel
+                </button>
+                <button onclick="saveConfig()" class="px-6 py-3 bg-red-700 hover:bg-red-800 text-white font-semibold rounded-lg transition duration-150">
+                    Save Configuration
+                </button>
+            </div>
         </div>
 
     </div>
@@ -880,6 +915,29 @@ def _open_config_settings_window(config_path, config):
             } catch (error) {
                 console.error('Error saving config:', error);
                 showStatus('Error saving configuration: ' + error, 'error');
+            }
+        }
+
+        async function restartApp() {
+            try {
+                if (!confirm('Are you sure you want to restart BAB PrintHub?\n\nAny unsaved changes will be lost.')) {
+                    return;
+                }
+
+                showStatus('Restarting application...', 'info');
+
+                // Call restart API
+                const result = await pywebview.api.restart_app();
+
+                if (result.success) {
+                    showStatus(result.message, 'success');
+                    // Settings window will close automatically when app restarts
+                } else {
+                    showStatus('Error restarting: ' + result.error, 'error');
+                }
+            } catch (error) {
+                console.error('Error restarting app:', error);
+                showStatus('Error restarting application: ' + error, 'error');
             }
         }
 

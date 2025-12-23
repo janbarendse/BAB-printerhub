@@ -12,8 +12,8 @@ from core.text_utils import wrap_text_to_lines, distribute_text_bottom_up
 if getattr(sys, 'frozen', False):
     base_dir = os.path.dirname(sys.executable)
 elif __file__:
-    # Go up 2 levels from bridge/software/odoo/ to bridge/
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    # Go up 4 levels from bridge/src/software/odoo/ to bridge/
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 
 def load_config():

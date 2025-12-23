@@ -161,20 +161,13 @@ class SystemTray:
             if active_software == 'odoo':
                 # Open Odoo URL in browser
                 try:
-                    from software.odoo.credentials_handler import load_credentials
-                    # Determine base directory
-                    if getattr(sys, 'frozen', False):
-                        base_dir = os.path.dirname(sys.executable)
-                    else:
-                        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-                    creds = load_credentials(base_dir)
-                    if creds and 'url' in creds:
+                    odoo_url = self.config.get('software', {}).get('odoo', {}).get('url')
+                    if odoo_url:
                         import webbrowser
-                        webbrowser.open(creds['url'])
-                        logger.info(f"Opening Odoo at {creds['url']}")
+                        webbrowser.open(odoo_url)
+                        logger.info(f"Opening Odoo at {odoo_url}")
                     else:
-                        logger.warning("Odoo URL not found in credentials")
+                        logger.warning("Odoo URL not configured in config.json")
                 except Exception as e:
                     logger.error(f"Error opening Odoo URL: {e}")
 
