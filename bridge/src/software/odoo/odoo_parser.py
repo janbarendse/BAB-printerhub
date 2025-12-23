@@ -145,13 +145,27 @@ def format_printer_descriptions(item_description, customer_note, item_notes):
 def process_discount_surcharge(item, op_type):
     if op_type == "discount":
         try:
-            if item['item_price'] == "0.00":
+            # BUGFIX #2: Support both fixed amount and percentage discounts
+            item_price = item.get('item_price', '0.00')
+            item_percent = item.get('item_percent', 0.0)
+
+            # If percentage is provided, use percentage-based discount
+            if item_percent > 0:
+                return {
+                    "type": "0",  # Discount type
+                    "description": f"Discount {item_percent}%",
+                    "amount": "000",  # Zero amount when using percentage
+                    "percent": encode_float_number(str(item_percent), 2),  # Percentage discount
+                }
+
+            # Otherwise use fixed amount discount
+            if item_price == "0.00":
                 return None
 
             return {
                 "type": "0",  # Discount type
                 "description": "Discount",
-                "amount": encode_float_number(str(item['item_price']), 2),  # Total discount amount including tax
+                "amount": encode_float_number(str(item_price), 2),  # Total discount amount including tax
                 "percent": "000",  # No percentage for total discount
             }
         except Exception:
@@ -159,13 +173,14 @@ def process_discount_surcharge(item, op_type):
 
     elif op_type == "surcharge":
         try:
-            if item['item_price'] == "0.00":
+            item_price = item.get('item_price', '0.00')
+            if item_price == "0.00":
                 return None
 
             return {
                 "type": "1",  # Surcharge type
                 "description": "Surcharge",
-                "amount": encode_float_number(str(item['item_price']), 2),  # Total surcharge amount including tax
+                "amount": encode_float_number(str(item_price), 2),  # Total surcharge amount including tax
                 "percent": "000",  # No percentage for total surcharge
             }
         except Exception:
@@ -205,21 +220,23 @@ def get_sub_items(data):
                 tax_exempt = True
 
             if "[DISC]" in item['item_description'] or "Discount" in item['item_description']:
-                print(f"Discount item")
-                # calculate discount amount with the tax
+                # BUGFIX #3: item_price is formatted as "2500" for 25.00, need to divide by 100
                 item_price = item['item_price'].replace("-", "")
-                logger.debug(f"Discount price: {item_price}")  # item_price)
-                discount_amount = float(item_price) * int(item['item_quantity'])
+                logger.debug(f"Discount item detected - raw price: {item_price}")
+                # Convert from encoded format (e.g., "2500" -> 25.00)
+                discount_amount = (float(item_price) / 100.0) * int(item['item_quantity'])
                 discount_total_amount += discount_amount
+                logger.debug(f"Discount amount calculated: {discount_amount}")
                 continue
 
             if "surcharge" in item['item_description'].lower():
-                print(f"Surcharge item")
-                # calculate discount amount with the tax
+                # BUGFIX #3: item_price is formatted as "2500" for 25.00, need to divide by 100
                 item_price = item['item_price'].replace("-", "")
-                logger.debug(f"Surcharge price: {item_price}")  # item_price)
-                surcharge_amount = float(item_price) * int(item['item_quantity'])
+                logger.debug(f"Surcharge item detected - raw price: {item_price}")
+                # Convert from encoded format (e.g., "2500" -> 25.00)
+                surcharge_amount = (float(item_price) / 100.0) * int(item['item_quantity'])
                 surcharge_total_amount += surcharge_amount
+                logger.debug(f"Surcharge amount calculated: {surcharge_amount}")
                 continue
 
             if "-" in item['item_quantity']:
@@ -261,6 +278,8 @@ def get_sub_items(data):
         # convert amount to float 2 decimal places
         discount_total_amount = "{:.2f}".format(float(discount_total_amount))
         surcharge_total_amount = "{:.2f}".format(float(surcharge_total_amount))
+
+        # Create discount object
         discount_data = {
             "item_price": str(discount_total_amount),
         }
@@ -391,6 +410,8 @@ def get_tips(data):
 
 def odoo_parse_transaction(data):
     try:
+        # Order-level discounts come through as line items (with "[DISC]" or "Discount" in description)
+        # They are handled in get_sub_items()
         items, discount, surcharge, has_negative_quantity = get_sub_items(data['articles'])
         payments, is_refund_from_payment = get_payment_details(data['payments'])
         service_charge = get_service_charge(data['service_charge_percent'])

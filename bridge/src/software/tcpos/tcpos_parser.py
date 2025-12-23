@@ -231,6 +231,27 @@ def get_sub_items(xml_json_object):
         transaction_data = xml_json_object[transaction_uuid]['data']
         original_vat_index = transaction_data.get('@_x003C_RecalcOriginalVATIndex_x003E_k__BackingField', None)
 
+        # BUGFIX #6: Check if there's a transaction-level discount/surcharge
+        # If yes, skip item-level discounts/surcharges to avoid double deduction
+        # TCPOS stores both discounts AND surcharges in TransDiscount element (Type field distinguishes them)
+        # TCPOS distributes transaction discounts/surcharges across items, so item DiscountValues
+        # are just a distribution of the TransDiscount and should be ignored
+        skip_item_discounts = False
+        if "TCPOS.FrontEnd.BusinessLogic.TransDiscount" in transaction_data.get('subItems', {}):
+            skip_item_discounts = True
+            logger.info("Transaction-level discount/surcharge detected - skipping item-level discounts/surcharges to avoid double deduction")
+
+        # BUGFIX #5: Detect credit notes early to handle negative quantities correctly
+        is_credit_note = False
+        total_str = transaction_data.get('@total', '0')
+        try:
+            total_amount = float(total_str)
+            if total_amount < 0:
+                is_credit_note = True
+                logger.info(f"Credit note detected in get_sub_items: total={total_amount}")
+        except (ValueError, TypeError):
+            pass
+
         # Get original VAT rate for net price calculation (vatIndex "1" = 9% tax)
         original_vat_rate = 0.09 if original_vat_index == "1" else 0.0
         # Process list of TransArticle items
@@ -287,7 +308,11 @@ def get_sub_items(xml_json_object):
                 total_amount = quantity * unit_price
 
                 # Extract item-level discount/surcharge
-                item_discount_surcharge = process_discount_surcharge(item)
+                # BUGFIX #6: Skip if transaction has order-level discount to avoid double deduction
+                if skip_item_discounts:
+                    item_discount_surcharge = None
+                else:
+                    item_discount_surcharge = process_discount_surcharge(item)
 
                 # Store item data for consolidation by product code
                 if product_code not in items_by_code:
@@ -355,7 +380,11 @@ def get_sub_items(xml_json_object):
                 total_amount = quantity * unit_price
 
                 # Extract item-level discount/surcharge
-                item_discount_surcharge = process_discount_surcharge(item)
+                # BUGFIX #6: Skip if transaction has order-level discount to avoid double deduction
+                if skip_item_discounts:
+                    item_discount_surcharge = None
+                else:
+                    item_discount_surcharge = process_discount_surcharge(item)
 
                 # Store item data for consolidation by product code
                 if product_code not in items_by_code:
@@ -379,10 +408,17 @@ def get_sub_items(xml_json_object):
 
         # Process items by product code (separate paid and voided items)
         for product_code, item_data in items_by_code.items():
-            # Separate positive (paid) and negative (voided) quantities
-            positive_quantities = [q for q in item_data['quantities'] if q > 0]
-            negative_quantities = [q for q in item_data['quantities'] if q < 0]
-            positive_amounts = [item_data['amounts'][i] for i, q in enumerate(item_data['quantities']) if q > 0]
+            # BUGFIX #5: For credit notes, treat ALL items as "paid" with absolute values
+            if is_credit_note:
+                # For credit notes: convert all negative quantities to positive
+                positive_quantities = [abs(q) for q in item_data['quantities']]
+                negative_quantities = []  # No voided items for credit notes
+                positive_amounts = [abs(item_data['amounts'][i]) for i in range(len(item_data['quantities']))]
+            else:
+                # For normal transactions: separate positive (paid) and negative (voided) quantities
+                positive_quantities = [q for q in item_data['quantities'] if q > 0]
+                negative_quantities = [q for q in item_data['quantities'] if q < 0]
+                positive_amounts = [item_data['amounts'][i] for i, q in enumerate(item_data['quantities']) if q > 0]
 
             product_title = item_data['product_title']
             printout_notes = item_data['printout_notes']
@@ -419,6 +455,7 @@ def get_sub_items(xml_json_object):
                     logger.info(f"Tax-exempt item: converted gross price to net (÷ {1 + original_vat_rate:.2f}), new price: {paid_unit_price}")
 
                 # Get item-level discount/surcharge (if any positive quantity item has one)
+                # BUGFIX #6: Item discounts are already skipped if TransDiscount exists (set to None above)
                 item_discount = None
                 for i, q in enumerate(item_data['quantities']):
                     if q > 0 and item_data['discounts_surcharges'][i] is not None:
@@ -845,15 +882,6 @@ def tcpos_parse_transaction(filename):
         discount = get_discount(xml_json_object)
         customer = get_customer_info(xml_json_object)
 
-        # Extract TransNum (TCPOS transaction/receipt number)
-        trans_num = xml_json_object[transaction_uuid]['data'].get('@TransNum', '')
-
-        # Extract operator code (cashier/operator ID)
-        operator_code = xml_json_object[transaction_uuid]['data'].get('@operatorID', '')
-
-        # Extract Comment field (for footer notes)
-        comment = xml_json_object[transaction_uuid]['data'].get('@Comment', '')
-
         # Check if this is a void/credit note transaction
         # A credit note has: negative total, OR StornoType="StornoChild", OR DeleteType with negative amounts
         is_credit_note = False
@@ -876,6 +904,68 @@ def tcpos_parse_transaction(filename):
                 if storno_type == 'StornoChild':
                     is_credit_note = True
                     logger.info(f"Credit note detected via StornoType: {storno_type}")
+
+        # BUGFIX #4: Adjust payment amounts to include discount/surcharge
+        # TCPOS XML contains payment amounts BEFORE discount/surcharge adjustments
+        # This causes printer to cancel check due to payment mismatch
+        # BUGFIX #5: Skip payment adjustment for credit notes (they have special handling)
+        if discount and payments and not is_credit_note:
+            try:
+                # Calculate discount/surcharge adjustment amount
+                adjustment = 0.0
+                discount_type = discount.get('type', '0')
+                discount_percent_encoded = discount.get('percent', '000')
+                discount_amount_encoded = discount.get('amount', '000')
+
+                # Decode the values (encoded as "2500" for 25.00)
+                discount_percent = float(discount_percent_encoded) / 100.0 if discount_percent_encoded != '000' else 0.0
+                discount_amount = float(discount_amount_encoded) / 100.0 if discount_amount_encoded != '000' else 0.0
+
+                # Calculate total payment sum
+                payment_sum = sum(float(p['amount']) / 100.0 for p in payments)
+                logger.debug(f"Original payment sum: {payment_sum}")
+
+                if discount_percent > 0:
+                    # Percentage-based: calculate adjustment from payment sum (subtotal)
+                    adjustment = payment_sum * (discount_percent / 100.0)
+                    logger.debug(f"Percentage {'surcharge' if discount_type == '1' else 'discount'}: {discount_percent}% = {adjustment}")
+                elif discount_amount > 0:
+                    # Fixed amount
+                    adjustment = discount_amount
+                    logger.debug(f"Fixed {'surcharge' if discount_type == '1' else 'discount'}: {adjustment}")
+
+                # Apply adjustment (positive for surcharge, effectively positive for discount too since we're adjusting to match total)
+                if adjustment > 0:
+                    # For surcharge (type="1"), ADD to payment amounts
+                    # For discount (type="0"), payments should already be reduced, but we need to ensure they match total
+                    if discount_type == "1":
+                        # Surcharge: Add to first payment
+                        new_total = payment_sum + adjustment
+                        logger.info(f"Adjusting payments for surcharge: {payment_sum} + {adjustment} = {new_total}")
+
+                        # Encode and update first payment
+                        first_payment_amount = float(payments[0]['amount']) / 100.0
+                        adjusted_first_payment = first_payment_amount + adjustment
+                        payments[0]['amount'] = f"{int(adjusted_first_payment * 100):05d}"
+
+                        logger.debug(f"Adjusted first payment from {first_payment_amount} to {adjusted_first_payment}")
+
+            except Exception as e:
+                logger.error(f"Error adjusting payments for discount/surcharge: {e}")
+                logger.error(traceback.format_exc())
+                # Continue without adjustment if error occurs
+
+        # Extract TransNum (TCPOS transaction/receipt number)
+        trans_num = xml_json_object[transaction_uuid]['data'].get('@TransNum', '')
+
+        # Extract operator code (cashier/operator ID)
+        operator_code = xml_json_object[transaction_uuid]['data'].get('@operatorID', '')
+
+        # Extract Comment field (for footer notes)
+        comment = xml_json_object[transaction_uuid]['data'].get('@Comment', '')
+
+        # is_credit_note already detected earlier (before payment adjustment)
+        # No need to detect again here
 
         return items, payments, service_charge, tips, trans_num, is_credit_note, discount, comment, customer, operator_code
 

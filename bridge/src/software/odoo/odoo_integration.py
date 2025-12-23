@@ -410,6 +410,10 @@ class OdooIntegration(BaseSoftware):
             tip = 0.0
             service_charge = 0.0
 
+            # NOTE: Order-level discounts in Odoo are typically implemented as line items with negative amounts
+            # or special discount product codes, not as order-level fields. These are already handled
+            # in the parser when processing line items with "[DISC]" or "Discount" in description.
+
             # Process order lines (items)
             if order['lines']:
                 order_lines = self._fetch_order_lines(order['lines'])
@@ -423,6 +427,13 @@ class OdooIntegration(BaseSoftware):
                     # Extract item notes
                     item_note = line.get('note', '') or ''
                     customer_note = line.get('customer_note', '') or ''
+
+                    # BUGFIX #1: Prevent order-level notes from appearing under products
+                    # If customer_note matches order_note, clear it (it will print in footer instead)
+                    if customer_note and order_note and customer_note.strip() == order_note.strip():
+                        logger.debug(f"Skipping duplicate customer_note that matches order_note: {customer_note[:50]}")
+                        customer_note = ''
+
                     item_full_name = line.get('full_product_name', '') or ''
 
                     # Extract discounts and surcharges
