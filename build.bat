@@ -69,14 +69,10 @@ echo Build successful!
 echo.
 
 REM ============================================================
-REM Step 5: Create Transaction Folders
+REM Step 5: Transaction Folders (Created On-Demand)
 REM ============================================================
-echo [5/8] Creating transaction folders...
-mkdir "dist\BAB_Cloud\odoo-transactions" 2>nul
-mkdir "dist\BAB_Cloud\tcpos-transactions" 2>nul
-mkdir "dist\BAB_Cloud\simphony-transactions" 2>nul
-mkdir "dist\BAB_Cloud\quickbooks-transactions" 2>nul
-echo Transaction folders created
+echo [5/8] Transaction folders will be created automatically...
+echo Each software integration creates its own folder when started
 echo.
 
 REM ============================================================
