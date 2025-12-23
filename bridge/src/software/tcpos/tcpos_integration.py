@@ -66,8 +66,8 @@ class TCPOSIntegration(BaseSoftware):
 
             transactions_folder = self.config['transactions_folder']
             if not os.path.exists(transactions_folder):
-                logger.error(f"Transactions folder does not exist: {transactions_folder}")
-                return False
+                os.makedirs(transactions_folder, exist_ok=True)
+                logger.info(f"Created transactions folder: {transactions_folder}")
 
             # Clear stop event
             self.stop_event.clear()
