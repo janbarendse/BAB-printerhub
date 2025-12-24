@@ -1,12 +1,12 @@
 {
   "software": {
-    "active": "odoo",
+    "active": "tcpos",
     "odoo": {
-      "enabled": true,
+      "enabled": false,
       "url": "https://makemyday-printerdev.odoo.com/odoo/point-of-sale",
       "credentials_file": "odoo_credentials_encrypted.json",
       "polling_interval_seconds": 3,
-      "last_order_id": 460,
+      "last_order_id": 532,
       "payment_methods": {
         "Cash punda": "00",
         "Cheque": "01",
@@ -22,7 +22,7 @@
       }
     },
     "tcpos": {
-      "enabled": false,
+      "enabled": true,
       "transactions_folder": "D:\\TCpos\\FrontEnd\\Transactions",
       "last_order_id": 0
     },
@@ -73,8 +73,8 @@
     "default_client_crib": ""
   },
   "polling": {
-    "printer_retry_interval_seconds": 5,
-    "software_retry_interval_seconds": 10
+    "printer_retry_interval_seconds": 3,
+    "software_retry_interval_seconds": 1
   },
   "mode": "cloud",
   "babportal": {

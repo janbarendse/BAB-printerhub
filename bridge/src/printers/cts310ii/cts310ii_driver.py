@@ -1348,7 +1348,7 @@ class CTS310iiDriver(BasePrinter):
 
             logger.info(f"Generating Z Reports for date range: {start_date_str} - {end_date_str}")
 
-            reserved_field = string_to_hex("0")
+            reserved_field = string_to_hex("1")  # Use "1" for full date format in header
             start_hex = string_to_hex(start_date_str)
             end_hex = string_to_hex(end_date_str)
 

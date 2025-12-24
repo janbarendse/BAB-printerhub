@@ -1,0 +1,19 @@
+# Z-Report Flag File Access Rules
+#
+# Deploy this to: /wp-content/.htaccess
+#
+# Purpose: Allow PrinterHub to access zreport.flag while keeping other files protected
+
+# Allow access to zreport.flag
+<Files "zreport.flag">
+    Order allow,deny
+    Allow from all
+    # Optional: Restrict to specific IP (uncomment and set your PrinterHub IP)
+    # Allow from 192.168.1.100
+</Files>
+
+# Protect other files (default WordPress behavior)
+<FilesMatch "^(?!zreport\.flag$).*">
+    Order deny,allow
+    Deny from all
+</FilesMatch>
