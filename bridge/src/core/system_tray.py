@@ -84,6 +84,14 @@ class SystemTray:
         except Exception as e:
             logger.error(f"Error signaling fiscal tools: {e}")
 
+    def _open_export_modal(self):
+        """Signal main thread to open export modal."""
+        try:
+            logger.info("Export modal requested from system tray")
+            self.modal_queue.put('open_export_modal')
+        except Exception as e:
+            logger.error(f"Error signaling export modal: {e}")
+
     def _print_x_report(self):
         """Print X report from system tray."""
         try:
@@ -119,6 +127,17 @@ class SystemTray:
 
             if result.get("success"):
                 logger.info("Z-Report printed successfully from system tray")
+
+                # Export salesbook CSV after successful Z-report
+                try:
+                    from .salesbook_exporter import export_salesbook_after_z_report
+                    export_result = export_salesbook_after_z_report(self.config)
+                    if export_result.get("success"):
+                        logger.info(f"Salesbook CSV exported: {export_result.get('summary_file', 'N/A')}")
+                    else:
+                        logger.warning(f"Salesbook export skipped or failed: {export_result.get('error', 'Unknown')}")
+                except Exception as export_error:
+                    logger.error(f"Error exporting salesbook CSV: {export_error}")
             else:
                 logger.warning(f"Z-Report failed from system tray: {result.get('error')}")
         except Exception as e:
@@ -293,6 +312,7 @@ class SystemTray:
 
         return menu(
             item('Fiscal Tools', self._open_fiscal_tools, default=True),
+            item('Export Salesbook', self._open_export_modal),
             menu.SEPARATOR,
             item('Access BABCloud Portal', self._open_babcloud_portal),
             item(f'Open {active_software} POS', self._open_pos_frontend),

@@ -133,6 +133,18 @@ class BABPortalPoller:
                 self.config["fiscal_tools"]["last_z_report_print_time"] = now.isoformat()
                 save_config(self.config)
 
+                # Export salesbook CSV after successful Z-report
+                if result.get("success"):
+                    try:
+                        from src.core.salesbook_exporter import export_salesbook_after_z_report
+                        export_result = export_salesbook_after_z_report(self.config)
+                        if export_result.get("success"):
+                            logger.info(f"Salesbook CSV exported: {export_result.get('summary_file', 'N/A')}")
+                        else:
+                            logger.warning(f"Salesbook export skipped or failed: {export_result.get('error', 'Unknown')}")
+                    except Exception as export_error:
+                        logger.error(f"Error exporting salesbook CSV: {export_error}")
+
                 return result
             except Exception as e:
                 logger.error(f"Exception during report execution: {e}")
@@ -336,6 +348,17 @@ class BABPortalPoller:
                     import datetime
                     self.config["fiscal_tools"]["last_z_report_print_time"] = datetime.datetime.now().isoformat()
                     save_config(self.config)
+
+                    # Export salesbook CSV after successful Z-report
+                    try:
+                        from src.core.salesbook_exporter import export_salesbook_after_z_report
+                        export_result = export_salesbook_after_z_report(self.config)
+                        if export_result.get("success"):
+                            logger.info(f"Salesbook CSV exported: {export_result.get('summary_file', 'N/A')}")
+                        else:
+                            logger.warning(f"Salesbook export skipped or failed: {export_result.get('error', 'Unknown')}")
+                    except Exception as export_error:
+                        logger.error(f"Error exporting salesbook CSV: {export_error}")
 
             elif command_type == 'xreport':
                 result = self.printer.print_x_report()

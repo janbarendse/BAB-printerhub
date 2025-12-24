@@ -182,6 +182,7 @@ def main():
     logger.info("=" * 60)
 
     from src.core.fiscal_ui import open_fiscal_tools_modal
+    from src.core.export_ui import open_export_modal
     from src.core.log_viewer import open_log_viewer_window
 
     # Main thread loop: Process modal UI requests
@@ -197,6 +198,14 @@ def main():
                         open_fiscal_tools_modal(printer, config)
                     except Exception as e:
                         logger.error(f"Error opening fiscal tools: {e}")
+
+                elif command == 'open_export_modal':
+                    logger.info("Opening export modal...")
+                    try:
+                        # Launch export modal in separate process (non-blocking)
+                        open_export_modal(config)
+                    except Exception as e:
+                        logger.error(f"Error opening export modal: {e}")
 
                 elif command == 'open_log_window':
                     logger.info("Opening log viewer window...")

@@ -92,6 +92,23 @@
     "Z_report_from": "2025-12-01",
     "last_z_report_print_time": "2025-12-20T20:57:48.505623"
   },
+  "business": {
+    "name": "BAB Restaurant",
+    "tax_number": "123456789",
+    "address": "",
+    "city": "Willemstad",
+    "country": "Curaçao",
+    "software_name": "BAB PrintHub",
+    "software_version": "2.0",
+    "certification_number": "CERT2025"
+  },
+  "salesbook": {
+    "csv_export_enabled": true,
+    "csv_export_path": "C:\\FBOOK",
+    "auto_export_on_z_report": true,
+    "include_transaction_details": true,
+    "include_sha1_hash": true
+  },
   "system": {
     "single_instance": true,
     "log_level": "INFO",

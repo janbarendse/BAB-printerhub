@@ -130,6 +130,18 @@ class FiscalToolsAPI:
 
             if response.get("success"):
                 logger.info("Z-Report printed successfully")
+
+                # Export salesbook CSV after successful Z-report
+                try:
+                    from .salesbook_exporter import export_salesbook_after_z_report
+                    export_result = export_salesbook_after_z_report(self.config)
+                    if export_result.get("success"):
+                        logger.info(f"Salesbook CSV exported: {export_result.get('summary_file', 'N/A')}")
+                    else:
+                        logger.warning(f"Salesbook export skipped or failed: {export_result.get('error', 'Unknown')}")
+                except Exception as export_error:
+                    logger.error(f"Error exporting salesbook CSV: {export_error}")
+
                 return {"success": True, "message": "Z Report command sent to printer"}
             else:
                 logger.warning(f"Z-Report response: {response.get('error', 'Unknown error')}")
