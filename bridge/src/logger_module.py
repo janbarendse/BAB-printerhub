@@ -10,7 +10,10 @@ import os
 import sys
 
 # Determine base directory
-if getattr(sys, 'frozen', False):
+_env_base = os.environ.get("BAB_UI_BASE")
+if _env_base:
+    BASE_DIR = _env_base.strip()
+elif getattr(sys, 'frozen', False):
     # Running as compiled executable
     BASE_DIR = os.path.dirname(sys.executable)
 else:

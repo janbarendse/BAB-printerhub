@@ -1,785 +1,558 @@
 """
-Fiscal Tools UI using pywebview - Modern HTML interface for BAB-Cloud PrintHub.
+Fiscal Tools UI using PySide6.
 
-Opens from system tray icon - provides full salesbook/fiscal reporting functionality.
-This is a unified version that works with any printer driver implementing BasePrinter.
+Provides the same layout as the webview modal with a native Qt UI.
 """
 
-import json
 import datetime
 import logging
 import os
 import sys
-import multiprocessing
+import ctypes
 
 logger = logging.getLogger(__name__)
 
 
-def _run_fiscal_tools_process(config_dict):
-    """
-    Run fiscal tools modal in a separate process.
-
-    This allows the modal to open without blocking the main thread
-    and enables multiple windows to be opened simultaneously.
-
-    Args:
-        config_dict: Configuration dictionary containing printer and software settings
-    """
+def _show_error_messagebox(title, message):
+    """Show native Windows error dialog for debugging modal failures."""
     try:
-        # Reinitialize logging in subprocess
-        from logger_module import logger as subprocess_logger
-        subprocess_logger.info("Fiscal tools process started")
-
-        # Recreate printer from config
-        from printers import create_printer
-        printer = create_printer(config_dict)
-
-        # Connect to printer
-        if not printer.connect():
-            subprocess_logger.error("Failed to connect to printer in subprocess")
-            # Continue anyway - some operations might still work
-
-        # Run the actual modal UI (this will block until window closes)
-        _open_fiscal_tools_modal_original(printer, config_dict)
-
-        subprocess_logger.info("Fiscal tools process ended")
-    except Exception as e:
-        logger.error(f"Error in fiscal tools process: {e}")
-        import traceback
-        traceback.print_exc()
+        ctypes.windll.user32.MessageBoxW(0, str(message), title, 0x10)  # MB_ICONERROR
+    except Exception:
+        pass
 
 
-class FiscalToolsAPI:
-    """
-    JavaScript API bridge for fiscal printer operations.
+def _is_compiled() -> bool:
+    if "__compiled__" in dir():
+        return True
+    if getattr(sys, "frozen", False):
+        return True
+    if ".dist" in sys.executable:
+        return True
+    return False
 
-    This class provides the backend API for the pywebview-based fiscal tools UI.
-    All methods are callable from JavaScript via the pywebview API bridge.
-    """
 
-    def __init__(self, printer, config):
-        """
-        Initialize the Fiscal Tools API.
+def _resolve_base_dir() -> str:
+    env_base = os.environ.get("BAB_UI_BASE")
+    if env_base:
+        return env_base.strip()
+    if _is_compiled():
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-        Args:
-            printer: Active printer instance (implements BasePrinter interface)
-            config: Full configuration dict from config_manager
-        """
-        self.printer = printer
-        self.config = config
-        self.window = None  # Set after window creation
 
-        # Check if cloud mode is enabled
-        self.is_cloud_mode = config.get('mode') == 'cloud' and config.get('babportal', {}).get('enabled', False)
+class FiscalToolsWindow:
+    def __init__(self):
+        from PySide6.QtCore import Qt, QDate
+        from PySide6.QtGui import QIcon
+        from PySide6.QtWidgets import (
+            QMainWindow,
+            QWidget,
+            QVBoxLayout,
+            QHBoxLayout,
+            QGridLayout,
+            QLabel,
+            QPushButton,
+            QLineEdit,
+            QDateEdit,
+            QSpinBox,
+            QFrame,
+            QScrollArea,
+        )
 
-        # Initialize WordPress command sender for cloud mode
-        self.wp_sender = None
-        if self.is_cloud_mode:
-            try:
-                import sys
-                sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'wordpress'))
-                from wordpress_command_sender import WordPressCommandSender
-                self.wp_sender = WordPressCommandSender(config)
-                logger.info("Cloud mode enabled: Commands will be routed through WordPress API")
-            except Exception as e:
-                logger.error(f"Failed to initialize WordPress command sender: {e}")
-                self.is_cloud_mode = False
+        from .ipc_client import IpcClient
+
+        self._Qt = Qt
+        self._QDate = QDate
+        self.client = IpcClient()
+
+        self.window = QMainWindow()
+        self.window.setWindowTitle("BAB Cloud - Fiscal Tools")
+        self.window.resize(940, 820)
+        self.window.setMinimumSize(820, 700)
+
+        base_dir = _resolve_base_dir()
+        icon_path = os.path.join(base_dir, "logo.png")
+        if os.path.exists(icon_path):
+            self.window.setWindowIcon(QIcon(icon_path))
+
+        central = QWidget()
+        self.window.setCentralWidget(central)
+        root_layout = QVBoxLayout(central)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        header = QWidget()
+        header.setObjectName("header")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(18, 14, 18, 14)
+        header_layout.setSpacing(16)
+
+        logo = QLabel()
+        logo.setObjectName("logo")
+        if os.path.exists(icon_path):
+            from PySide6.QtGui import QPixmap
+
+            pix = QPixmap(icon_path)
+            if not pix.isNull():
+                logo.setPixmap(pix.scaled(72, 72, self._Qt.KeepAspectRatio, self._Qt.SmoothTransformation))
+
+        title_box = QWidget()
+        title_layout = QVBoxLayout(title_box)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(2)
+        title = QLabel("Fiscal PrintHub")
+        title.setObjectName("headerTitle")
+        subtitle = QLabel("Quick Report Generation")
+        subtitle.setObjectName("headerSubtitle")
+        title_layout.addWidget(title)
+        title_layout.addWidget(subtitle)
+
+        header_layout.addWidget(logo)
+        header_layout.addWidget(title_box, 1)
+
+        header_actions = QWidget()
+        header_actions_layout = QHBoxLayout(header_actions)
+        header_actions_layout.setContentsMargins(0, 0, 0, 0)
+        header_actions_layout.setSpacing(12)
+
+        self.receipt_doc = QLineEdit()
+        self.receipt_doc.setPlaceholderText("Doc #")
+        self.receipt_doc.setObjectName("inputField")
+        receipt_btn = QPushButton("Print Copy")
+        receipt_btn.setObjectName("primaryButton")
+        receipt_btn.clicked.connect(self.print_copy)
+        receipt_card = self._build_action_card("Receipt Copy", [self.receipt_doc, receipt_btn])
+
+        self.no_sale_reason = QLineEdit()
+        self.no_sale_reason.setPlaceholderText("Reason (optional)")
+        self.no_sale_reason.setObjectName("inputField")
+        no_sale_btn = QPushButton("No Sale")
+        no_sale_btn.setObjectName("primaryButton")
+        no_sale_btn.clicked.connect(self.print_no_sale)
+        no_sale_card = self._build_action_card("No Sale", [self.no_sale_reason, no_sale_btn])
+
+        header_actions_layout.addWidget(receipt_card)
+        header_actions_layout.addWidget(no_sale_card)
+        header_layout.addWidget(header_actions)
+
+        root_layout.addWidget(header)
+
+        scroll = QScrollArea()
+        scroll.setObjectName("scroll")
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(20, 18, 20, 18)
+        content_layout.setSpacing(18)
+
+        today_label = QLabel("Today's Reports")
+        today_label.setObjectName("sectionTitle")
+        content_layout.addWidget(today_label)
+
+        today_grid = QGridLayout()
+        today_grid.setSpacing(16)
+
+        z_card = self._build_report_card(
+            title="Z Report (Today)",
+            description="Closes the fiscal day and prints the Z Report. Printer will only print if there are transactions.",
+            button_text="Close Fiscal Day - Z Report",
+            button_object="primaryButtonWide",
+            handler=self.print_z_report,
+            accent="red",
+        )
+        x_card = self._build_report_card(
+            title="X Report (Today)",
+            description="Current shift status without closing the fiscal day.",
+            button_text="Print X Report",
+            button_object="darkButtonWide",
+            handler=self.print_x_report,
+            accent="gray",
+        )
+        today_grid.addWidget(z_card, 0, 0)
+        today_grid.addWidget(x_card, 0, 1)
+        content_layout.addLayout(today_grid)
+
+        history_label = QLabel("Historical Reports")
+        history_label.setObjectName("sectionTitle")
+        content_layout.addWidget(history_label)
+
+        history_grid = QGridLayout()
+        history_grid.setSpacing(16)
+
+        date_card = self._build_date_range_card()
+        number_card = self._build_number_range_card()
+        history_grid.addWidget(date_card, 0, 0)
+        history_grid.addWidget(number_card, 0, 1)
+        content_layout.addLayout(history_grid)
+
+        content_layout.addStretch(1)
+        scroll.setWidget(content)
+        root_layout.addWidget(scroll, 1)
+
+        footer = QWidget()
+        footer.setObjectName("footer")
+        footer_layout = QHBoxLayout(footer)
+        footer_layout.setContentsMargins(16, 10, 16, 10)
+
+        self.status_label = QLabel("Ready")
+        self.status_label.setObjectName("status")
+        footer_layout.addWidget(self.status_label, 1)
+
+        close_btn = QPushButton("Close")
+        close_btn.setObjectName("darkButtonWide")
+        close_btn.clicked.connect(self.window.close)
+        footer_layout.addWidget(close_btn)
+
+        root_layout.addWidget(footer)
+
+        self._apply_styles()
+        self._init_dates()
+
+    def _apply_styles(self):
+        self.window.setStyleSheet(
+            """
+            QMainWindow {
+                background-color: #f5f6f8;
+                color: #111827;
+            }
+            QWidget#header {
+                background: #b91c1c;
+                border-bottom: 1px solid #991b1b;
+            }
+            QLabel#headerTitle {
+                font-size: 22px;
+                font-weight: 800;
+                color: #ffffff;
+            }
+            QLabel#headerSubtitle {
+                font-size: 12px;
+                color: #f3d6d6;
+            }
+            QLabel#sectionTitle {
+                font-size: 16px;
+                font-weight: 700;
+                color: #111827;
+                padding-left: 2px;
+            }
+            QWidget#actionCard {
+                background: #a6252a;
+                border: 1px solid #b33a3f;
+                border-radius: 10px;
+            }
+            QLabel#actionTitle {
+                font-size: 12px;
+                font-weight: 700;
+                color: #ffffff;
+            }
+            QWidget#scroll {
+                background: transparent;
+            }
+            QFrame#card {
+                background: #ffffff;
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+            }
+            QFrame#cardRed {
+                background: #fff5f5;
+                border: 2px solid #ef4444;
+                border-radius: 12px;
+            }
+            QFrame#cardGray {
+                background: #ffffff;
+                border: 2px solid #9ca3af;
+                border-radius: 12px;
+            }
+            QLabel#cardTitle {
+                font-size: 15px;
+                font-weight: 700;
+                color: #111827;
+            }
+            QLabel#cardDesc {
+                font-size: 12px;
+                color: #6b7280;
+            }
+            QLineEdit#inputField {
+                background: #ffffff;
+                border: 1px solid #d1d5db;
+                border-radius: 8px;
+                padding: 6px 8px;
+                color: #111827;
+            }
+            QDateEdit#inputField {
+                background: #ffffff;
+                border: 1px solid #d1d5db;
+                border-radius: 8px;
+                padding: 6px 8px;
+                color: #111827;
+            }
+            QSpinBox#inputField {
+                background: #ffffff;
+                border: 1px solid #d1d5db;
+                border-radius: 8px;
+                padding: 6px 8px;
+                color: #111827;
+            }
+            QPushButton#primaryButton {
+                background-color: #b91c1c;
+                color: #ffffff;
+                border: none;
+                border-radius: 8px;
+                padding: 6px 14px;
+                font-weight: 700;
+            }
+            QPushButton#primaryButton:hover {
+                background-color: #991b1b;
+            }
+            QPushButton#primaryButtonWide {
+                background-color: #b91c1c;
+                color: #ffffff;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 18px;
+                font-weight: 700;
+            }
+            QPushButton#primaryButtonWide:hover {
+                background-color: #991b1b;
+            }
+            QPushButton#darkButtonWide {
+                background-color: #374151;
+                color: #ffffff;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 18px;
+                font-weight: 700;
+            }
+            QPushButton#darkButtonWide:hover {
+                background-color: #1f2937;
+            }
+            QWidget#footer {
+                background: #f3f4f6;
+                border-top: 1px solid #e5e7eb;
+            }
+            QLabel#status {
+                color: #6b7280;
+            }
+            """
+        )
+
+    def _build_action_card(self, title, widgets):
+        from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QWidget
+
+        card = QWidget()
+        card.setObjectName("actionCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(6)
+
+        label = QLabel(title)
+        label.setObjectName("actionTitle")
+        layout.addWidget(label)
+
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(8)
+        for widget in widgets:
+            row_layout.addWidget(widget)
+        layout.addWidget(row)
+        return card
+
+    def _build_report_card(self, title, description, button_text, button_object, handler, accent):
+        from PySide6.QtWidgets import QVBoxLayout, QLabel, QPushButton, QFrame
+
+        frame = QFrame()
+        if accent == "red":
+            frame.setObjectName("cardRed")
+        elif accent == "gray":
+            frame.setObjectName("cardGray")
+        else:
+            frame.setObjectName("card")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(8)
+
+        title_label = QLabel(title)
+        title_label.setObjectName("cardTitle")
+        desc_label = QLabel(description)
+        desc_label.setObjectName("cardDesc")
+        desc_label.setWordWrap(True)
+
+        btn = QPushButton(button_text)
+        btn.setObjectName(button_object)
+        btn.clicked.connect(handler)
+
+        layout.addWidget(title_label)
+        layout.addWidget(desc_label)
+        layout.addStretch(1)
+        layout.addWidget(btn)
+        return frame
+
+    def _build_date_range_card(self):
+        from PySide6.QtWidgets import QVBoxLayout, QLabel, QGridLayout, QPushButton, QFrame, QDateEdit
+        from PySide6.QtCore import QDate
+
+        frame = QFrame()
+        frame.setObjectName("card")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
+
+        title = QLabel("Z Reports by Date Range")
+        title.setObjectName("cardTitle")
+        layout.addWidget(title)
+
+        grid = QGridLayout()
+        grid.setSpacing(8)
+
+        from_label = QLabel("From (dd-mm-yy)")
+        to_label = QLabel("To (dd-mm-yy)")
+        self.date_start = QDateEdit()
+        self.date_start.setObjectName("inputField")
+        self.date_start.setDisplayFormat("dd-MM-yy")
+        self.date_start.setCalendarPopup(True)
+        self.date_start.setDate(QDate.currentDate())
+        self.date_end = QDateEdit()
+        self.date_end.setObjectName("inputField")
+        self.date_end.setDisplayFormat("dd-MM-yy")
+        self.date_end.setCalendarPopup(True)
+        self.date_end.setDate(QDate.currentDate())
+
+        grid.addWidget(from_label, 0, 0)
+        grid.addWidget(to_label, 0, 1)
+        grid.addWidget(self.date_start, 1, 0)
+        grid.addWidget(self.date_end, 1, 1)
+        layout.addLayout(grid)
+
+        btn = QPushButton("Print Date Range")
+        btn.setObjectName("primaryButtonWide")
+        btn.clicked.connect(self.print_z_report_by_date)
+        layout.addWidget(btn)
+        return frame
+
+    def _build_number_range_card(self):
+        from PySide6.QtWidgets import QVBoxLayout, QLabel, QGridLayout, QPushButton, QSpinBox, QFrame
+
+        frame = QFrame()
+        frame.setObjectName("card")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
+
+        title = QLabel("Z Reports by Number Range")
+        title.setObjectName("cardTitle")
+        layout.addWidget(title)
+
+        grid = QGridLayout()
+        grid.setSpacing(8)
+
+        start_label = QLabel("Start #")
+        end_label = QLabel("End #")
+        self.start_number = QSpinBox()
+        self.start_number.setObjectName("inputField")
+        self.start_number.setRange(1, 1000000)
+        self.start_number.setValue(100)
+        self.end_number = QSpinBox()
+        self.end_number.setObjectName("inputField")
+        self.end_number.setRange(1, 1000000)
+        self.end_number.setValue(150)
+
+        grid.addWidget(start_label, 0, 0)
+        grid.addWidget(end_label, 0, 1)
+        grid.addWidget(self.start_number, 1, 0)
+        grid.addWidget(self.end_number, 1, 1)
+        layout.addLayout(grid)
+
+        btn = QPushButton("Print Number Range")
+        btn.setObjectName("primaryButtonWide")
+        btn.clicked.connect(self.print_z_report_by_number_range)
+        layout.addWidget(btn)
+        return frame
+
+    def _init_dates(self):
+        today = self._QDate.currentDate()
+        self.date_start.setDate(today)
+        self.date_end.setDate(today)
+
+    def _set_status(self, message, is_error=False):
+        self.status_label.setText(message)
+        if is_error:
+            self.status_label.setStyleSheet("color: #dc2626;")
+        else:
+            self.status_label.setStyleSheet("color: #6b7280;")
+
+    def _call(self, action, payload=None):
+        return self.client.request(action, payload or {})
+
+    def _handle_result(self, result, success_message, error_prefix="Error"):
+        if result.get("success"):
+            self._set_status(success_message)
+        else:
+            error = result.get("error", "Unknown error")
+            self._set_status(f"{error_prefix}: {error}", is_error=True)
 
     def print_x_report(self):
-        """Generate X report (non-fiscal daily report)."""
-        try:
-            logger.info("X-Report triggered from webview UI")
-
-            # Route through WordPress in cloud mode
-            if self.is_cloud_mode and self.wp_sender:
-                logger.info("Cloud mode: Routing X-Report through WordPress API")
-                return self.wp_sender.print_x_report()
-
-            # Local execution
-            response = self.printer.print_x_report()
-
-            if response.get("success"):
-                logger.info("X-Report printed successfully")
-                return {"success": True, "message": "X Report printed successfully"}
-            else:
-                logger.warning(f"X-Report failed: {response.get('error')}")
-                return {"success": False, "error": response.get("error", "Failed to print X Report")}
-        except Exception as e:
-            logger.error(f"Error printing X-Report: {e}")
-            return {"success": False, "error": str(e)}
+        self._set_status("Printing X Report...")
+        result = self._call("fiscal.print_x_report")
+        self._handle_result(result, result.get("message", "X Report printed"))
 
     def print_z_report(self):
-        """Print today's Z report (fiscal day closing)."""
-        try:
-            logger.info("Z-Report (Today) triggered from webview UI")
+        self._set_status("Printing Z Report...")
+        result = self._call("fiscal.print_z_report")
+        self._handle_result(result, result.get("message", "Z Report printed"))
 
-            # Route through WordPress in cloud mode
-            if self.is_cloud_mode and self.wp_sender:
-                logger.info("Cloud mode: Routing Z-Report through WordPress API")
-                return self.wp_sender.print_z_report()
+    def print_z_report_by_date(self):
+        start_date = self.date_start.date().toString("yyyy-MM-dd")
+        end_date = self.date_end.date().toString("yyyy-MM-dd")
+        self._set_status(f"Printing Z Reports {start_date} to {end_date}...")
+        result = self._call("fiscal.print_z_report_by_date", {"start_date": start_date, "end_date": end_date})
+        self._handle_result(result, result.get("message", "Z Reports printed"))
 
-            # Local execution
-            # Update timestamp in config
-            from .config_manager import save_config
-            now = datetime.datetime.now()
-            self.config["fiscal_tools"]["last_z_report_print_time"] = now.isoformat()
-            save_config(self.config)
-
-            # Send command to printer
-            response = self.printer.print_z_report(close_fiscal_day=True)
-
-            if response.get("success"):
-                logger.info("Z-Report printed successfully")
-
-                # Export salesbook CSV after successful Z-report
-                try:
-                    from .salesbook_exporter import export_salesbook_after_z_report
-                    export_result = export_salesbook_after_z_report(self.config)
-                    if export_result.get("success"):
-                        logger.info(f"Salesbook CSV exported: {export_result.get('summary_file', 'N/A')}")
-                    else:
-                        logger.warning(f"Salesbook export skipped or failed: {export_result.get('error', 'Unknown')}")
-                except Exception as export_error:
-                    logger.error(f"Error exporting salesbook CSV: {export_error}")
-
-                return {"success": True, "message": "Z Report command sent to printer"}
-            else:
-                logger.warning(f"Z-Report response: {response.get('error', 'Unknown error')}")
-                # Still return success since command was sent
-                return {"success": True, "message": "Z Report command sent to printer"}
-        except Exception as e:
-            logger.error(f"Error printing Z-Report: {e}")
-            return {"success": False, "error": str(e)}
-
-    def print_z_report_by_date(self, start_date, end_date):
-        """
-        Generate Z reports by date range.
-
-        Args:
-            start_date: Start date string (YYYY-MM-DD)
-            end_date: End date string (YYYY-MM-DD)
-        """
-        try:
-            logger.info(f"Z-Report by date range triggered: {start_date} to {end_date}")
-
-            # Route through WordPress in cloud mode
-            if self.is_cloud_mode and self.wp_sender:
-                logger.info("Cloud mode: Routing Z-Report by Date through WordPress API")
-                return self.wp_sender.print_z_report_by_date(start_date, end_date)
-
-            # Local execution
-            # Convert string dates to date objects
-            start_date_obj = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
-            end_date_obj = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
-
-            response = self.printer.print_z_report_by_date(start_date_obj, end_date_obj)
-
-            if response.get("success"):
-                logger.info("Z-Reports by date printed successfully")
-                return {"success": True, "message": response.get("message", "Z Reports printed")}
-            else:
-                logger.warning(f"Z-Reports by date failed: {response.get('error')}")
-                return {"success": False, "error": response.get("error", "Failed to print Z Reports")}
-        except Exception as e:
-            logger.error(f"Error printing Z-Reports by date: {e}")
-            return {"success": False, "error": str(e)}
-
-    def print_z_report_by_number(self, number):
-        """
-        Generate Z report by number.
-
-        Args:
-            number: Report number (integer)
-        """
-        try:
-            logger.info(f"Z-Report by number triggered: {number}")
-            response = self.printer.print_z_report_by_number(int(number))
-
-            if response.get("success"):
-                logger.info("Z-Report by number printed successfully")
-                return {"success": True, "message": response.get("message", "Z Report printed")}
-            else:
-                logger.warning(f"Z-Report by number failed: {response.get('error')}")
-                return {"success": False, "error": response.get("error", "Failed to print Z Report")}
-        except Exception as e:
-            logger.error(f"Error printing Z-Report by number: {e}")
-            return {"success": False, "error": str(e)}
-
-    def print_z_report_by_number_range(self, start_number, end_number):
-        """
-        Generate Z reports by number range.
-
-        Args:
-            start_number: Start report number
-            end_number: End report number
-        """
-        try:
-            logger.info(f"Z-Report by number range triggered: {start_number} to {end_number}")
-
-            start_num = int(start_number)
-            end_num = int(end_number)
-
-            if start_num > end_num:
-                return {"success": False, "error": "Start number must be less than or equal to end number"}
-
-            # Route through WordPress in cloud mode
-            if self.is_cloud_mode and self.wp_sender:
-                logger.info("Cloud mode: Routing Z-Report Range through WordPress API")
-                return self.wp_sender.print_z_report_range(start_num, end_num)
-
-            # Local execution
-            response = self.printer.print_z_report_by_number_range(start_num, end_num)
-
-            if response.get("success"):
-                logger.info("Z-Reports by number range printed successfully")
-                return {"success": True, "message": response.get("message", "Z Reports printed")}
-            else:
-                logger.warning(f"Z-Reports by number range failed: {response.get('error')}")
-                return {"success": False, "error": response.get("error", "Failed to print Z Reports")}
-        except Exception as e:
-            logger.error(f"Error printing Z-Reports by number range: {e}")
-            return {"success": False, "error": str(e)}
-
-    def reprint_document(self, document_number):
-        """
-        Reprint a document copy (NO SALE).
-
-        Args:
-            document_number: Document number to reprint
-        """
-        try:
-            logger.info(f"Reprint document triggered: {document_number}")
-
-            # Route through WordPress in cloud mode
-            if self.is_cloud_mode and self.wp_sender:
-                logger.info("Cloud mode: Routing Print Check through WordPress API")
-                return self.wp_sender.print_check(document_number)
-
-            # Local execution
-            response = self.printer.reprint_document(str(document_number))
-
-            if response.get("success"):
-                logger.info("Document reprinted successfully")
-                return {"success": True, "message": "Document copy printed (NO SALE)"}
-            else:
-                logger.warning(f"Reprint failed: {response.get('error')}")
-                return {"success": False, "error": response.get("error", "Failed to reprint document")}
-        except Exception as e:
-            logger.error(f"Error reprinting document: {e}")
-            return {"success": False, "error": str(e)}
-
-    def print_no_sale(self, reason=""):
-        """Open cash drawer (NO SALE receipt)."""
-        try:
-            logger.info(f"NO SALE triggered from webview UI{f' - Reason: {reason}' if reason else ''}")
-
-            # Route through WordPress in cloud mode
-            if self.is_cloud_mode and self.wp_sender:
-                logger.info("Cloud mode: Routing No Sale through WordPress API")
-                return self.wp_sender.print_no_sale(reason)
-
-            # Local execution
-            response = self.printer.print_no_sale(reason)
-
-            if response.get("success"):
-                logger.info("NO SALE printed successfully")
-                return {"success": True, "message": "No Sale receipt printed"}
-            else:
-                logger.warning(f"NO SALE failed: {response.get('error')}")
-                return {"success": False, "error": response.get("error", "Failed to print No Sale")}
-        except Exception as e:
-            logger.error(f"Error printing NO SALE: {e}")
-            return {"success": False, "error": str(e)}
-
-    def get_z_report_config(self):
-        """
-        Get Z report configuration (earliest date, last print time).
-
-        Returns:
-            dict: Z report configuration
-        """
-        try:
-            fiscal_tools = self.config.get("fiscal_tools", {})
-
-            # Calculate yesterday as the latest allowed date
-            today = datetime.date.today()
-            yesterday = (today - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-
-            # Get last Z report print time
-            last_print_time = fiscal_tools.get("last_z_report_print_time")
-
-            # Check if today's Z report was already printed
-            today_z_printed = False
-            if last_print_time:
-                try:
-                    last_print_date = datetime.datetime.fromisoformat(last_print_time).date()
-                    today_z_printed = (last_print_date == today)
-                except:
-                    pass
-
-            return {
-                "success": True,
-                "z_report_from": fiscal_tools.get("Z_report_from", "2025-01-01"),
-                "yesterday": yesterday,
-                "today": today.strftime("%Y-%m-%d"),
-                "today_z_printed": today_z_printed,
-                "last_print_time": last_print_time
-            }
-        except Exception as e:
-            logger.error(f"Error getting Z report config: {e}")
-            return {"success": False, "error": str(e)}
-
-    def get_config(self):
-        """Return fiscal_tools config section (for TCPOS compatibility)"""
-        return self.config.get("fiscal_tools", {})
-
-    def get_min_date(self):
-        """Return Z_report_from date (for TCPOS compatibility)"""
-        return self.config.get("fiscal_tools", {}).get("Z_report_from", datetime.date.today().strftime("%Y-%m-%d"))
-
-    def close_window(self):
-        """Close the modal window"""
-        if self.window:
-            self.window.destroy()
-
-
-def open_fiscal_tools_modal(printer, config):
-    """
-    Open the fiscal tools modal window in a separate process.
-
-    Args:
-        printer: Active printer instance (not used, config passed instead)
-        config: Full configuration dict
-
-    This function launches the fiscal tools UI in a separate process to avoid blocking
-    the main thread and to allow multiple windows to be opened simultaneously.
-    """
-    try:
-        logger.info("Launching fiscal tools modal in separate process")
-        process = multiprocessing.Process(
-            target=_run_fiscal_tools_process,
-            args=(config,),
-            daemon=True
+    def print_z_report_by_number_range(self):
+        start_number = int(self.start_number.value())
+        end_number = int(self.end_number.value())
+        self._set_status(f"Printing Z Reports #{start_number} to #{end_number}...")
+        result = self._call(
+            "fiscal.print_z_report_by_number_range",
+            {"start_number": start_number, "end_number": end_number},
         )
-        process.start()
-        logger.info("Fiscal tools modal process started")
+        self._handle_result(result, result.get("message", "Z Reports printed"))
 
-    except Exception as e:
-        logger.error(f"Error opening fiscal tools modal: {e}")
+    def print_copy(self):
+        document_number = self.receipt_doc.text().strip()
+        if not document_number:
+            self._set_status("Document number is required.", is_error=True)
+            return
+        self._set_status(f"Printing copy of document {document_number}...")
+        result = self._call("fiscal.reprint_document", {"document_number": document_number})
+        if result.get("success"):
+            self.receipt_doc.clear()
+        self._handle_result(result, result.get("message", "Document copy printed"))
+
+    def print_no_sale(self):
+        reason = self.no_sale_reason.text().strip()
+        self._set_status("Printing No Sale receipt...")
+        result = self._call("fiscal.print_no_sale", {"reason": reason})
+        if result.get("success"):
+            self.no_sale_reason.clear()
+        self._handle_result(result, result.get("message", "No Sale printed"))
+
+
+def _open_fiscal_tools_modal_original(config):
+    try:
+        from PySide6.QtWidgets import QApplication
+    except Exception as exc:
+        _show_error_messagebox("Fiscal Tools Error", f"PySide6 is not available: {exc}")
         raise
 
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication([])
 
-def _open_fiscal_tools_modal_original(printer, config):
-    """
-    Original implementation - opens fiscal tools modal (runs in subprocess).
+    window = FiscalToolsWindow()
+    window.window.show()
+    app.exec()
 
-    Args:
-        printer: Active printer instance
-        config: Full configuration dict
-    """
-    try:
-        import webview
-        import base64
 
-        # Create API instance
-        api = FiscalToolsAPI(printer, config)
-
-        # Convert logo.png to base64 for embedding
-        logo_base64 = ""
-        try:
-            if getattr(sys, 'frozen', False):
-                logo_path = os.path.join(sys._MEIPASS, 'logo.png')
-            else:
-                # Go up 3 levels from src/core/fiscal_ui.py to bridge/
-                logo_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'logo.png')
-
-            if os.path.exists(logo_path):
-                with open(logo_path, 'rb') as f:
-                    logo_base64 = base64.b64encode(f.read()).decode('utf-8')
-                logger.debug(f"Logo loaded from {logo_path}")
-            else:
-                logger.warning(f"Logo not found at {logo_path}")
-        except Exception as e:
-            logger.warning(f"Error loading logo: {e}")
-
-        # Build HTML content with embedded logo
-        if logo_base64:
-            logo_html = f'<img src="data:image/png;base64,{logo_base64}" alt="BAB Cloud" class="h-16 w-auto">'
-        else:
-            # Fallback to text-based logo if image not available
-            logo_html = '''<div class="bg-white p-3 rounded-lg shadow-lg">
-                        <div class="text-center">
-                            <div class="text-red-700 font-black text-2xl leading-none">SOLU</div>
-                            <div class="bg-gray-800 text-white font-black text-xl px-2 py-1 mt-1 rounded">TECH</div>
-                            <div class="text-gray-800 font-bold text-xs mt-1">BAB REPORTING</div>
-                        </div>
-                    </div>'''
-
-        # HTML content for the fiscal tools UI (exact copy from TCPOS version)
-        html_content = r'''
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BAB Fiscal PrintHub</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
-        body {{
-            font-family: 'Inter', sans-serif;
-        }}
-    </style>
-</head>
-<body class="bg-white m-0 p-0" style="overflow: hidden;">
-    <div class="bg-white max-w-4xl mx-auto" style="height: 100vh; display: flex; flex-direction: column; overflow: hidden;">
-
-        <!-- Header with Logo -->
-        <div class="bg-gradient-to-r from-red-700 to-red-800 p-4 rounded-t-2xl">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-4">
-                    {logo_html}
-                    <div>
-                        <h1 class="text-2xl font-bold text-white">Fiscal PrintHub</h1>
-                        <p class="text-red-100 text-sm">Quick Report Generation</p>
-                    </div>
-                </div>
-
-                <!-- Quick Actions in Header -->
-                <div class="flex gap-3">
-                    <!-- Receipt Copy -->
-                    <div class="bg-white/10 backdrop-blur-sm rounded-xl p-3 border border-white/20">
-                        <p class="text-xs text-white/90 mb-2 font-semibold">Receipt Copy</p>
-                        <div class="flex gap-2">
-                            <input type="text" id="check-number" class="w-32 p-2 border-0 rounded-lg text-sm" placeholder="Doc #">
-                            <button onclick="printCheckCopy()" class="bg-white text-red-700 hover:bg-red-50 font-semibold px-4 py-2 rounded-lg transition duration-150 text-sm whitespace-nowrap">
-                                Print Copy
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- No Sale -->
-                    <div class="bg-white/10 backdrop-blur-sm rounded-xl p-3 border border-white/20">
-                        <p class="text-xs text-white/90 mb-2 font-semibold">No Sale</p>
-                        <div class="flex gap-2">
-                            <input type="text" id="no-sale-reason" class="w-40 p-2 border-0 rounded-lg text-sm" placeholder="Reason (optional)">
-                            <button onclick="printNoSale()" class="bg-white text-red-700 hover:bg-red-50 font-semibold px-4 py-2 rounded-lg transition duration-150 text-sm whitespace-nowrap">
-                                No Sale
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Main Content -->
-        <div class="p-4 space-y-4" style="flex: 1; overflow-y: auto; overflow-x: hidden;">
-
-            <!-- Primary Actions - Today's Reports -->
-            <div class="space-y-3">
-                <h2 class="text-lg font-bold text-gray-800 pb-2">Today's Reports</h2>
-
-                <!-- Desktop: side by side, Mobile: stacked -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <!-- Z Report - Most Important -->
-                    <div class="bg-red-50 border-2 border-red-600 rounded-xl p-4 shadow-md flex flex-col">
-                        <div class="mb-3 flex-grow">
-                            <h3 class="text-xl font-bold text-red-800 mb-1">Z Report (Today)</h3>
-                            <p class="text-sm text-gray-600">Closes the fiscal day and prints the Z Report. Printer will only print if there are transactions.</p>
-                        </div>
-                        <button id="z-report-btn" onclick="printZReport()" class="w-full bg-red-700 hover:bg-red-800 text-white font-bold py-4 rounded-lg transition duration-150 shadow-lg hover:shadow-xl transform hover:scale-[1.02] mt-auto">
-                            <span class="text-lg">Close Fiscal Day - Z Report</span>
-                        </button>
-                    </div>
-
-                    <!-- X Report -->
-                    <div class="bg-gray-50 border-2 border-gray-400 rounded-xl p-4 shadow-md flex flex-col">
-                        <div class="mb-3 flex-grow">
-                            <h3 class="text-lg font-bold text-gray-800 mb-1">X Report (Today)</h3>
-                            <p class="text-sm text-gray-600">Current shift status without closing the fiscal day.</p>
-                        </div>
-                        <button onclick="printXReport()" class="w-full bg-gray-700 hover:bg-gray-800 text-white font-bold py-4 rounded-lg transition duration-150 shadow-md hover:shadow-lg mt-auto">
-                            <span class="text-lg">Print X Report</span>
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Historical Reports -->
-            <div class="space-y-3">
-                <h2 class="text-lg font-bold text-gray-800 pb-2">Historical Reports</h2>
-
-                <!-- Desktop: side by side, Mobile: stacked -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <!-- Date Range -->
-                    <div class="bg-white border border-gray-300 rounded-xl p-4 shadow-sm">
-                        <label class="block text-sm font-bold text-gray-700 mb-3">Z Reports by Date Range</label>
-                        <div class="space-y-3">
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">From (dd-mm-yy)</label>
-                                    <input type="text" id="start-date" placeholder="dd-mm-yy" pattern="\d{2}-\d{2}-\d{2}" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">To (dd-mm-yy)</label>
-                                    <input type="text" id="end-date" placeholder="dd-mm-yy" pattern="\d{2}-\d{2}-\d{2}" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm">
-                                </div>
-                            </div>
-                            <button onclick="printZByDateRange()" class="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-2.5 rounded-lg transition duration-150 shadow-md text-sm">
-                                Print Date Range
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Number Range -->
-                    <div class="bg-white border border-gray-300 rounded-xl p-4 shadow-sm">
-                        <label class="block text-sm font-bold text-gray-700 mb-3">Z Reports by Number Range</label>
-                        <div class="space-y-3">
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">Start #</label>
-                                    <input type="number" id="start-number" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm" placeholder="100" min="1">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium text-gray-600 mb-1">End #</label>
-                                    <input type="number" id="end-number" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm" placeholder="150" min="1">
-                                </div>
-                            </div>
-                            <button onclick="printZByNumberRange()" class="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-2.5 rounded-lg transition duration-150 shadow-md text-sm">
-                                Print Number Range
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Status Display -->
-            <div id="status-message" class="hidden p-4 rounded-lg text-sm font-medium"></div>
-        </div>
-
-        <!-- Footer -->
-        <div class="bg-gray-50 px-4 py-3 border-t border-gray-200" style="flex-shrink: 0;">
-            <button onclick="closeModal()" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2.5 rounded-lg transition duration-150">
-                Close
-            </button>
-        </div>
-    </div>
-
-    <script>
-        // Status message helper
-        function showStatus(message, type = 'info') {
-            const statusEl = document.getElementById('status-message');
-            statusEl.classList.remove('hidden', 'bg-green-100', 'text-green-800', 'bg-red-100', 'text-red-800', 'bg-blue-100', 'text-blue-800');
-
-            if (type === 'success') {
-                statusEl.classList.add('bg-green-100', 'text-green-800');
-            } else if (type === 'error') {
-                statusEl.classList.add('bg-red-100', 'text-red-800');
-            } else {
-                statusEl.classList.add('bg-blue-100', 'text-blue-800');
-            }
-
-            statusEl.textContent = message;
-
-            setTimeout(() => {
-                statusEl.classList.add('hidden');
-            }, 5000);
-        }
-
-        // Initialize on load
-        window.addEventListener('pywebviewready', function() {
-            initializeUI();
-        });
-
-        async function initializeUI() {
-            try {
-                const config = await pywebview.api.get_config();
-                const minDate = await pywebview.api.get_min_date();
-
-                // Set date constraints
-                const today = new Date().toISOString().split('T')[0];
-                const yesterday = new Date();
-                yesterday.setDate(yesterday.getDate() - 1);
-
-                // Format dates as dd-mm-yy
-                const formatDateDDMMYY = (date) => {
-                    const dd = String(date.getDate()).padStart(2, '0');
-                    const mm = String(date.getMonth() + 1).padStart(2, '0');
-                    const yy = String(date.getFullYear()).slice(-2);
-                    return `${dd}-${mm}-${yy}`;
-                };
-
-                document.getElementById('start-date').value = formatDateDDMMYY(yesterday);
-                document.getElementById('end-date').value = formatDateDDMMYY(yesterday);
-            } catch (error) {
-                console.error('Error initializing UI:', error);
-                showStatus('Error loading configuration', 'error');
-            }
-        }
-
-        // Main functions
-        async function printZReport() {
-            showStatus('Processing Z Report (closing fiscal day)...', 'info');
-            try {
-                const result = await pywebview.api.print_z_report();
-                if (result.success) {
-                    showStatus('✓ ' + result.message, 'success');
-                } else {
-                    showStatus('✗ ' + result.error, 'error');
-                }
-            } catch (error) {
-                showStatus('Error: ' + error, 'error');
-            }
-        }
-
-        async function printXReport() {
-            showStatus('Processing X Report...', 'info');
-            try {
-                const result = await pywebview.api.print_x_report();
-                if (result.success) {
-                    showStatus('✓ ' + result.message, 'success');
-                } else {
-                    showStatus('✗ ' + result.error, 'error');
-                }
-            } catch (error) {
-                showStatus('Error: ' + error, 'error');
-            }
-        }
-
-        async function printZByDateRange() {
-            const startDateInput = document.getElementById('start-date').value;
-            const endDateInput = document.getElementById('end-date').value;
-
-            if (!startDateInput || !endDateInput) {
-                showStatus('Please enter both start and end dates.', 'error');
-                return;
-            }
-
-            // Validate format dd-mm-yy
-            const datePattern = /^(\d{2})-(\d{2})-(\d{2})$/;
-            const startMatch = startDateInput.match(datePattern);
-            const endMatch = endDateInput.match(datePattern);
-
-            if (!startMatch || !endMatch) {
-                showStatus('Invalid date format. Please use dd-mm-yy (e.g., 19-12-25)', 'error');
-                return;
-            }
-
-            // Convert dd-mm-yy to yyyy-mm-dd for API
-            const parseDateDDMMYY = (dateStr) => {
-                const [dd, mm, yy] = dateStr.split('-');
-                const year = parseInt(yy) < 50 ? `20${yy}` : `19${yy}`;  // Assume 00-49 = 2000s, 50-99 = 1900s
-                return `${year}-${mm}-${dd}`;
-            };
-
-            const startDate = parseDateDDMMYY(startDateInput);
-            const endDate = parseDateDDMMYY(endDateInput);
-
-            showStatus(`Processing Z Reports from ${startDateInput} to ${endDateInput}...`, 'info');
-            try {
-                const result = await pywebview.api.print_z_report_by_date(startDate, endDate);
-                if (result.success) {
-                    showStatus('✓ ' + result.message, 'success');
-                } else {
-                    showStatus('✗ ' + result.error, 'error');
-                }
-            } catch (error) {
-                showStatus('Error: ' + error, 'error');
-            }
-        }
-
-        async function printZByNumberRange() {
-            const startNum = document.getElementById('start-number').value;
-            const endNum = document.getElementById('end-number').value;
-
-            if (!startNum || !endNum) {
-                showStatus('Please enter both start and end numbers.', 'error');
-                return;
-            }
-
-            showStatus(`Processing Z Reports #${startNum} to #${endNum}...`, 'info');
-            try {
-                const result = await pywebview.api.print_z_report_by_number_range(startNum, endNum);
-                if (result.success) {
-                    showStatus('✓ ' + result.message, 'success');
-                } else {
-                    showStatus('✗ ' + result.error, 'error');
-                }
-            } catch (error) {
-                showStatus('Error: ' + error, 'error');
-            }
-        }
-
-        async function printCheckCopy() {
-            const checkNumber = document.getElementById('check-number').value.trim();
-
-            if (!checkNumber) {
-                showStatus('Document number is required.', 'error');
-                return;
-            }
-
-            showStatus(`Printing copy of document ${checkNumber}...`, 'info');
-            try {
-                const result = await pywebview.api.reprint_document(checkNumber);
-                if (result.success) {
-                    showStatus('✓ ' + result.message, 'success');
-                    document.getElementById('check-number').value = '';
-                } else {
-                    showStatus('✗ ' + result.error, 'error');
-                }
-            } catch (error) {
-                showStatus('Error: ' + error, 'error');
-            }
-        }
-
-        async function printNoSale() {
-            const reason = document.getElementById('no-sale-reason').value.trim();
-
-            showStatus('Printing No Sale receipt...', 'info');
-            try {
-                const result = await pywebview.api.print_no_sale(reason);
-                if (result.success) {
-                    showStatus('✓ ' + result.message, 'success');
-                    document.getElementById('no-sale-reason').value = '';
-                } else {
-                    showStatus('✗ ' + result.error, 'error');
-                }
-            } catch (error) {
-                showStatus('Error: ' + error, 'error');
-            }
-        }
-
-        function closeModal() {
-            pywebview.api.close_window();
-        }
-    </script>
-</body>
-</html>
-        '''
-
-        # Replace logo placeholder with actual logo HTML
-        html_content = html_content.replace('{logo_html}', logo_html)
-
-        # Add favicon to head section if logo exists
-        if logo_base64:
-            favicon_tag = f'<link rel="icon" type="image/png" href="data:image/png;base64,{logo_base64}">'
-            html_content = html_content.replace('<title>BAB Fiscal PrintHub</title>', f'<title>BAB Fiscal PrintHub</title>\n    {favicon_tag}')
-
-        # Create and show the window
-        window = webview.create_window(
-            title="BAB Cloud - Fiscal Tools",
-            html=html_content,
-            js_api=api,
-            width=900,
-            height=800,
-            resizable=True,
-            min_size=(700, 600)
-        )
-
-        api.window = window
-        webview.start()
-
-        logger.info("Fiscal tools modal closed")
-
-    except Exception as e:
-        logger.error(f"Error opening fiscal tools modal: {e}")
-        raise
+def open_fiscal_tools_modal(config, printer=None, software=None):
+    """Entry point retained for compatibility (uses IPC-backed UI)."""
+    _open_fiscal_tools_modal_original(config)

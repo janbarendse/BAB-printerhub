@@ -13,8 +13,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# Determine base directory (works for both dev and frozen/PyInstaller)
-if getattr(sys, 'frozen', False):
+# Determine base directory (works for dev, UI runtime, and frozen/PyInstaller)
+_env_base = os.environ.get("BAB_UI_BASE")
+if _env_base:
+    BASE_DIR = _env_base
+elif getattr(sys, 'frozen', False):
     # Running as compiled executable
     BASE_DIR = os.path.dirname(sys.executable)
 else:

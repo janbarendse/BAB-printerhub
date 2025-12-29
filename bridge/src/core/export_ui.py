@@ -1,624 +1,585 @@
 """
-Export UI using pywebview - Modern HTML interface for Salesbook CSV Export.
+Export UI using PySide6 - Salesbook CSV Export.
 
-Opens from system tray icon - provides salesbook export by date and month.
+Opens from system tray icon - provides salesbook export by date, month, and range.
 """
 
-import json
 import datetime
+import calendar
 import logging
 import os
 import sys
-import multiprocessing
-import calendar
+import ctypes
 
 logger = logging.getLogger(__name__)
 
 
-def _run_export_modal_process(config_dict):
-    """
-    Run export modal in a separate process.
-
-    Args:
-        config_dict: Configuration dictionary containing salesbook settings
-    """
+def _show_error_messagebox(title, message):
+    """Show native Windows error dialog for debugging modal failures."""
     try:
-        # Reinitialize logging in subprocess
-        from logger_module import logger as subprocess_logger
-        subprocess_logger.info("Export modal process started")
-
-        # Run the actual modal UI (this will block until window closes)
-        _open_export_modal_original(config_dict)
-
-        subprocess_logger.info("Export modal process ended")
-    except Exception as e:
-        logger.error(f"Error in export modal process: {e}")
-        import traceback
-        traceback.print_exc()
+        ctypes.windll.user32.MessageBoxW(0, str(message), title, 0x10)  # MB_ICONERROR
+    except Exception:
+        pass
 
 
-class ExportAPI:
-    """
-    JavaScript API bridge for salesbook export operations.
+def _is_compiled() -> bool:
+    if "__compiled__" in dir():
+        return True
+    if getattr(sys, "frozen", False):
+        return True
+    if ".dist" in sys.executable:
+        return True
+    return False
 
-    This class provides the backend API for the pywebview-based export UI.
-    All methods are callable from JavaScript via the pywebview API bridge.
-    """
 
+def _resolve_base_dir() -> str:
+    env_base = os.environ.get("BAB_UI_BASE")
+    if env_base:
+        return env_base.strip()
+    if _is_compiled():
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+class ExportWindow:
     def __init__(self, config):
-        """
-        Initialize the Export API.
+        from PySide6.QtCore import Qt, QDate
+        from PySide6.QtGui import QIcon
+        from PySide6.QtWidgets import (
+            QMainWindow,
+            QWidget,
+            QVBoxLayout,
+            QHBoxLayout,
+            QGridLayout,
+            QLabel,
+            QPushButton,
+            QDateEdit,
+            QComboBox,
+            QSpinBox,
+            QFrame,
+            QGroupBox,
+            QScrollArea,
+        )
 
-        Args:
-            config: Full configuration dict from config_manager
-        """
+        self._Qt = Qt
+        self._QDate = QDate
         self.config = config
-        self.window = None  # Set after window creation
 
-    def export_by_date(self, date_str):
-        """
-        Export salesbook for a specific date.
+        self.window = QMainWindow()
+        self.window.setWindowTitle("BAB Cloud - Salesbook Export")
+        self.window.resize(920, 760)
+        self.window.setMinimumSize(820, 680)
 
-        Args:
-            date_str: Date string (YYYY-MM-DD)
+        base_dir = _resolve_base_dir()
+        icon_path = os.path.join(base_dir, "logo.png")
+        if os.path.exists(icon_path):
+            self.window.setWindowIcon(QIcon(icon_path))
 
-        Returns:
-            dict: {"success": bool, "message": str, "summary_file": str, "details_file": str}
-        """
+        central = QWidget()
+        self.window.setCentralWidget(central)
+        root_layout = QVBoxLayout(central)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        header = QWidget()
+        header.setObjectName("header")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(18, 14, 18, 14)
+        header_layout.setSpacing(16)
+
+        logo = QLabel()
+        if os.path.exists(icon_path):
+            from PySide6.QtGui import QPixmap
+
+            pix = QPixmap(icon_path)
+            if not pix.isNull():
+                logo.setPixmap(pix.scaled(64, 64, self._Qt.KeepAspectRatio, self._Qt.SmoothTransformation))
+
+        title_box = QWidget()
+        title_layout = QVBoxLayout(title_box)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(2)
+        title = QLabel("Salesbook Export")
+        title.setObjectName("headerTitle")
+        subtitle = QLabel("Export CSV summaries and detail files")
+        subtitle.setObjectName("headerSubtitle")
+        title_layout.addWidget(title)
+        title_layout.addWidget(subtitle)
+
+        header_layout.addWidget(logo)
+        header_layout.addWidget(title_box, 1)
+
+        open_folder_btn = QPushButton("Open Export Folder")
+        open_folder_btn.setObjectName("darkButtonWide")
+        open_folder_btn.clicked.connect(self.open_export_folder)
+        header_layout.addWidget(open_folder_btn)
+
+        root_layout.addWidget(header)
+
+        scroll = QScrollArea()
+        scroll.setObjectName("scroll")
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(20, 18, 20, 18)
+        content_layout.setSpacing(16)
+
+        actions_grid = QGridLayout()
+        actions_grid.setSpacing(16)
+
+        # Export by date card
+        date_card = QFrame()
+        date_card.setObjectName("card")
+        date_layout = QVBoxLayout(date_card)
+        date_layout.setContentsMargins(16, 14, 16, 14)
+        date_layout.setSpacing(10)
+
+        date_title = QLabel("Export by Date")
+        date_title.setObjectName("cardTitle")
+        date_desc = QLabel("Export a single day salesbook CSV.")
+        date_desc.setObjectName("cardDesc")
+        date_desc.setWordWrap(True)
+
+        self.single_date = QDateEdit()
+        self.single_date.setObjectName("inputField")
+        self.single_date.setDisplayFormat("dd-MM-yy")
+        self.single_date.setCalendarPopup(True)
+        self.single_date.setDate(QDate.currentDate())
+
+        date_btn = QPushButton("Export Date")
+        date_btn.setObjectName("primaryButtonWide")
+        date_btn.clicked.connect(self.export_by_date)
+
+        date_layout.addWidget(date_title)
+        date_layout.addWidget(date_desc)
+        date_layout.addWidget(self.single_date)
+        date_layout.addWidget(date_btn)
+
+        # Export by month card
+        month_card = QFrame()
+        month_card.setObjectName("card")
+        month_layout = QVBoxLayout(month_card)
+        month_layout.setContentsMargins(16, 14, 16, 14)
+        month_layout.setSpacing(10)
+
+        month_title = QLabel("Export by Month")
+        month_title.setObjectName("cardTitle")
+        month_desc = QLabel("Export every day in a month. This may take a moment.")
+        month_desc.setObjectName("cardDesc")
+        month_desc.setWordWrap(True)
+
+        month_row = QWidget()
+        month_row_layout = QHBoxLayout(month_row)
+        month_row_layout.setContentsMargins(0, 0, 0, 0)
+        month_row_layout.setSpacing(8)
+
+        self.month_select = QComboBox()
+        self.month_select.setObjectName("inputField")
+        for i in range(1, 13):
+            self.month_select.addItem(datetime.date(2000, i, 1).strftime("%B"), i)
+        self.month_select.setCurrentIndex(datetime.date.today().month - 1)
+
+        self.year_select = QSpinBox()
+        self.year_select.setObjectName("inputField")
+        self.year_select.setRange(2000, 2100)
+        self.year_select.setValue(datetime.date.today().year)
+
+        month_row_layout.addWidget(self.month_select, 1)
+        month_row_layout.addWidget(self.year_select, 0)
+
+        month_btn = QPushButton("Export Month")
+        month_btn.setObjectName("primaryButtonWide")
+        month_btn.clicked.connect(self.export_by_month)
+
+        month_layout.addWidget(month_title)
+        month_layout.addWidget(month_desc)
+        month_layout.addWidget(month_row)
+        month_layout.addWidget(month_btn)
+
+        # Export by range card
+        range_card = QFrame()
+        range_card.setObjectName("card")
+        range_layout = QVBoxLayout(range_card)
+        range_layout.setContentsMargins(16, 14, 16, 14)
+        range_layout.setSpacing(10)
+
+        range_title = QLabel("Export by Date Range")
+        range_title.setObjectName("cardTitle")
+        range_desc = QLabel("Export a continuous date range of daily salesbooks.")
+        range_desc.setObjectName("cardDesc")
+        range_desc.setWordWrap(True)
+
+        range_row = QWidget()
+        range_row_layout = QHBoxLayout(range_row)
+        range_row_layout.setContentsMargins(0, 0, 0, 0)
+        range_row_layout.setSpacing(8)
+
+        self.range_start = QDateEdit()
+        self.range_start.setObjectName("inputField")
+        self.range_start.setDisplayFormat("dd-MM-yy")
+        self.range_start.setCalendarPopup(True)
+        self.range_start.setDate(QDate.currentDate())
+
+        self.range_end = QDateEdit()
+        self.range_end.setObjectName("inputField")
+        self.range_end.setDisplayFormat("dd-MM-yy")
+        self.range_end.setCalendarPopup(True)
+        self.range_end.setDate(QDate.currentDate())
+
+        range_row_layout.addWidget(self.range_start, 1)
+        range_row_layout.addWidget(self.range_end, 1)
+
+        range_btn = QPushButton("Export Date Range")
+        range_btn.setObjectName("primaryButtonWide")
+        range_btn.clicked.connect(self.export_by_date_range)
+
+        range_layout.addWidget(range_title)
+        range_layout.addWidget(range_desc)
+        range_layout.addWidget(range_row)
+        range_layout.addWidget(range_btn)
+
+        actions_grid.addWidget(date_card, 0, 0)
+        actions_grid.addWidget(month_card, 0, 1)
+        actions_grid.addWidget(range_card, 1, 0, 1, 2)
+        content_layout.addLayout(actions_grid)
+
+        results_group = QGroupBox("Export Results")
+        results_group.setObjectName("resultsGroup")
+        results_layout = QVBoxLayout(results_group)
+        results_layout.setContentsMargins(14, 12, 14, 12)
+        results_layout.setSpacing(8)
+
+        self.results_container = QWidget()
+        self.results_layout = QVBoxLayout(self.results_container)
+        self.results_layout.setContentsMargins(0, 0, 0, 0)
+        self.results_layout.setSpacing(8)
+
+        results_scroll = QScrollArea()
+        results_scroll.setWidgetResizable(True)
+        results_scroll.setWidget(self.results_container)
+        results_layout.addWidget(results_scroll)
+
+        content_layout.addWidget(results_group)
+        content_layout.addStretch(1)
+
+        scroll.setWidget(content)
+        root_layout.addWidget(scroll, 1)
+
+        footer = QWidget()
+        footer.setObjectName("footer")
+        footer_layout = QHBoxLayout(footer)
+        footer_layout.setContentsMargins(16, 10, 16, 10)
+
+        self.status_label = QLabel("Ready")
+        self.status_label.setObjectName("status")
+        footer_layout.addWidget(self.status_label, 1)
+
+        close_btn = QPushButton("Close")
+        close_btn.setObjectName("darkButtonWide")
+        close_btn.clicked.connect(self.window.close)
+        footer_layout.addWidget(close_btn)
+
+        root_layout.addWidget(footer)
+
+        self._apply_styles()
+
+    def _apply_styles(self):
+        self.window.setStyleSheet(
+            """
+            QMainWindow {
+                background-color: #f5f6f8;
+                color: #111827;
+            }
+            QWidget#header {
+                background: #b91c1c;
+                border-bottom: 1px solid #991b1b;
+            }
+            QLabel#headerTitle {
+                font-size: 22px;
+                font-weight: 800;
+                color: #ffffff;
+            }
+            QLabel#headerSubtitle {
+                font-size: 12px;
+                color: #f3d6d6;
+            }
+            QWidget#scroll {
+                background: transparent;
+            }
+            QFrame#card {
+                background: #ffffff;
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+            }
+            QLabel#cardTitle {
+                font-size: 15px;
+                font-weight: 700;
+                color: #111827;
+            }
+            QLabel#cardDesc {
+                font-size: 12px;
+                color: #6b7280;
+            }
+            QGroupBox#resultsGroup {
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+                background: #ffffff;
+            }
+            QGroupBox#resultsGroup::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 6px;
+                font-weight: 700;
+                color: #111827;
+            }
+            QLineEdit#inputField, QComboBox#inputField, QSpinBox#inputField, QDateEdit#inputField {
+                background: #ffffff;
+                border: 1px solid #d1d5db;
+                border-radius: 8px;
+                padding: 6px 8px;
+                color: #111827;
+            }
+            QPushButton#primaryButtonWide {
+                background-color: #b91c1c;
+                color: #ffffff;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 18px;
+                font-weight: 700;
+            }
+            QPushButton#primaryButtonWide:hover {
+                background-color: #991b1b;
+            }
+            QPushButton#darkButtonWide {
+                background-color: #374151;
+                color: #ffffff;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 18px;
+                font-weight: 700;
+            }
+            QPushButton#darkButtonWide:hover {
+                background-color: #1f2937;
+            }
+            QWidget#footer {
+                background: #f3f4f6;
+                border-top: 1px solid #e5e7eb;
+            }
+            QLabel#status {
+                color: #6b7280;
+            }
+            QWidget#resultItem {
+                background: #f9fafb;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
+            }
+            QLabel#resultDate {
+                font-weight: 700;
+                color: #111827;
+            }
+            QLabel#resultFile {
+                font-size: 12px;
+                color: #6b7280;
+            }
+            """
+        )
+
+    def _set_status(self, message, is_error=False):
+        self.status_label.setText(message)
+        if is_error:
+            self.status_label.setStyleSheet("color: #dc2626;")
+        else:
+            self.status_label.setStyleSheet("color: #6b7280;")
+
+    def _clear_results(self):
+        while self.results_layout.count():
+            item = self.results_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.setParent(None)
+
+    def _show_results(self, files):
+        from PySide6.QtWidgets import QVBoxLayout, QLabel, QWidget
+
+        self._clear_results()
+        if not files:
+            label = QLabel("No files exported")
+            label.setObjectName("resultFile")
+            self.results_layout.addWidget(label)
+            return
+
+        for file_info in files:
+            card = QWidget()
+            card.setObjectName("resultItem")
+            layout = QVBoxLayout(card)
+            layout.setContentsMargins(10, 8, 10, 8)
+            layout.setSpacing(4)
+
+            date_label = QLabel(file_info.get("date", ""))
+            date_label.setObjectName("resultDate")
+            summary_label = QLabel(f"Summary: {file_info.get('summary', '')}")
+            summary_label.setObjectName("resultFile")
+            layout.addWidget(date_label)
+            layout.addWidget(summary_label)
+            details = file_info.get("details")
+            if details:
+                details_label = QLabel(f"Details: {details}")
+                details_label.setObjectName("resultFile")
+                layout.addWidget(details_label)
+
+            self.results_layout.addWidget(card)
+
+    def export_by_date(self):
+        date_str = self.single_date.date().toString("yyyy-MM-dd")
+        self._set_status(f"Exporting salesbook for {date_str}...")
         try:
-            logger.info(f"Export by date triggered: {date_str}")
-
-            # Parse date
-            date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
-
-            # Import and use exporter
             from .salesbook_exporter import SalesbookExporter
+
             exporter = SalesbookExporter(self.config)
-
-            result = exporter.export_daily_salesbook(date_obj)
-
+            result = exporter.export_daily_salesbook(datetime.datetime.strptime(date_str, "%Y-%m-%d").date())
             if result.get("success"):
-                logger.info(f"Export successful for {date_str}")
-                return {
-                    "success": True,
-                    "message": f"Successfully exported salesbook for {date_str}",
-                    "summary_file": result.get("summary_file", ""),
-                    "details_file": result.get("details_file", "")
-                }
+                self._set_status(result.get("message", f"Exported {date_str}"))
+                files = []
+                if result.get("summary_file"):
+                    files.append({
+                        "date": date_str,
+                        "summary": result.get("summary_file"),
+                        "details": result.get("details_file"),
+                    })
+                self._show_results(files)
             else:
-                logger.warning(f"Export failed for {date_str}: {result.get('error')}")
-                return {
-                    "success": False,
-                    "error": result.get("error", "Export failed")
-                }
-        except Exception as e:
-            logger.error(f"Error exporting by date: {e}")
-            return {"success": False, "error": str(e)}
+                self._set_status(result.get("error", "Export failed"), is_error=True)
+        except Exception as exc:
+            logger.error("Export by date failed: %s", exc)
+            self._set_status(str(exc), is_error=True)
 
-    def export_by_month(self, year, month):
-        """
-        Export salesbook for an entire month.
+    def export_by_month(self):
+        year = int(self.year_select.value())
+        month = int(self.month_select.currentData())
+        self._set_status(f"Exporting salesbook for {year}-{month:02d}...")
 
-        Args:
-            year: Year (int)
-            month: Month (int, 1-12)
-
-        Returns:
-            dict: {"success": bool, "message": str, "files": list}
-        """
         try:
-            logger.info(f"Export by month triggered: {year}-{month:02d}")
-
             from .salesbook_exporter import SalesbookExporter
-            exporter = SalesbookExporter(self.config)
 
-            # Get number of days in the month
-            _, num_days = calendar.monthrange(int(year), int(month))
+            exporter = SalesbookExporter(self.config)
+            _, num_days = calendar.monthrange(year, month)
 
             exported_files = []
             failed_dates = []
-
-            # Export each day in the month
             for day in range(1, num_days + 1):
-                date_obj = datetime.date(int(year), int(month), day)
+                date_obj = datetime.date(year, month, day)
                 result = exporter.export_daily_salesbook(date_obj)
-
                 if result.get("success"):
                     if result.get("summary_file"):
                         exported_files.append({
                             "date": date_obj.strftime("%Y-%m-%d"),
                             "summary": result.get("summary_file"),
-                            "details": result.get("details_file")
+                            "details": result.get("details_file"),
                         })
                 else:
-                    # Only track as failed if there was an actual error (not just no transactions)
                     if "No transactions" not in result.get("error", ""):
                         failed_dates.append(date_obj.strftime("%Y-%m-%d"))
 
             if exported_files:
-                logger.info(f"Month export completed: {len(exported_files)} days exported")
-                return {
-                    "success": True,
-                    "message": f"Exported {len(exported_files)} days from {year}-{month:02d}",
-                    "files": exported_files,
-                    "failed_dates": failed_dates
-                }
+                self._set_status(f"Exported {len(exported_files)} days from {year}-{month:02d}")
+                self._show_results(exported_files)
             else:
-                logger.warning(f"No transactions found for {year}-{month:02d}")
-                return {
-                    "success": False,
-                    "error": f"No transactions found for {year}-{month:02d}"
-                }
-        except Exception as e:
-            logger.error(f"Error exporting by month: {e}")
-            return {"success": False, "error": str(e)}
+                self._set_status("No transactions found for that month", is_error=True)
 
-    def export_by_date_range(self, start_date_str, end_date_str):
-        """
-        Export salesbook for a date range.
+            if failed_dates:
+                logger.warning("Export failed for dates: %s", ", ".join(failed_dates))
+        except Exception as exc:
+            logger.error("Export by month failed: %s", exc)
+            self._set_status(str(exc), is_error=True)
 
-        Args:
-            start_date_str: Start date string (YYYY-MM-DD)
-            end_date_str: End date string (YYYY-MM-DD)
+    def export_by_date_range(self):
+        start_date = self.range_start.date().toString("yyyy-MM-dd")
+        end_date = self.range_end.date().toString("yyyy-MM-dd")
 
-        Returns:
-            dict: {"success": bool, "message": str, "files": list}
-        """
+        if self.range_start.date() > self.range_end.date():
+            self._set_status("Start date must be before end date", is_error=True)
+            return
+
+        self._set_status(f"Exporting salesbook from {start_date} to {end_date}...")
         try:
-            logger.info(f"Export by date range triggered: {start_date_str} to {end_date_str}")
-
-            # Parse dates
-            start_date = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
-            end_date = datetime.datetime.strptime(end_date_str, "%Y-%m-%d").date()
-
-            if start_date > end_date:
-                return {"success": False, "error": "Start date must be before or equal to end date"}
-
             from .salesbook_exporter import SalesbookExporter
-            exporter = SalesbookExporter(self.config)
 
+            exporter = SalesbookExporter(self.config)
             exported_files = []
             failed_dates = []
-            current_date = start_date
+            current_date = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
+            end_date_obj = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
 
-            # Export each day in the range
-            while current_date <= end_date:
+            while current_date <= end_date_obj:
                 result = exporter.export_daily_salesbook(current_date)
-
                 if result.get("success"):
                     if result.get("summary_file"):
                         exported_files.append({
                             "date": current_date.strftime("%Y-%m-%d"),
                             "summary": result.get("summary_file"),
-                            "details": result.get("details_file")
+                            "details": result.get("details_file"),
                         })
                 else:
-                    # Only track as failed if there was an actual error (not just no transactions)
                     if "No transactions" not in result.get("error", ""):
                         failed_dates.append(current_date.strftime("%Y-%m-%d"))
-
                 current_date += datetime.timedelta(days=1)
 
             if exported_files:
-                logger.info(f"Date range export completed: {len(exported_files)} days exported")
-                return {
-                    "success": True,
-                    "message": f"Exported {len(exported_files)} days from {start_date_str} to {end_date_str}",
-                    "files": exported_files,
-                    "failed_dates": failed_dates
-                }
+                self._set_status(f"Exported {len(exported_files)} days from {start_date} to {end_date}")
+                self._show_results(exported_files)
             else:
-                logger.warning(f"No transactions found for date range {start_date_str} to {end_date_str}")
-                return {
-                    "success": False,
-                    "error": f"No transactions found for the selected date range"
-                }
-        except Exception as e:
-            logger.error(f"Error exporting by date range: {e}")
-            return {"success": False, "error": str(e)}
+                self._set_status("No transactions found for the selected range", is_error=True)
 
-    def get_export_config(self):
-        """
-        Get export configuration.
-
-        Returns:
-            dict: Export configuration
-        """
-        try:
-            salesbook_config = self.config.get("salesbook", {})
-
-            return {
-                "success": True,
-                "enabled": salesbook_config.get("csv_export_enabled", True),
-                "export_path": salesbook_config.get("csv_export_path", "C:\\Fbook"),
-                "include_details": salesbook_config.get("include_transaction_details", True)
-            }
-        except Exception as e:
-            logger.error(f"Error getting export config: {e}")
-            return {"success": False, "error": str(e)}
+            if failed_dates:
+                logger.warning("Export failed for dates: %s", ", ".join(failed_dates))
+        except Exception as exc:
+            logger.error("Export by range failed: %s", exc)
+            self._set_status(str(exc), is_error=True)
 
     def open_export_folder(self):
-        """Open the export folder in Windows Explorer."""
         try:
             export_path = self.config.get("salesbook", {}).get("csv_export_path", "C:\\Fbook")
-
             if os.path.exists(export_path):
                 os.startfile(export_path)
-                logger.info(f"Opened export folder: {export_path}")
-                return {"success": True, "message": f"Opened folder: {export_path}"}
+                self._set_status(f"Opened folder: {export_path}")
             else:
-                logger.warning(f"Export folder does not exist: {export_path}")
-                return {"success": False, "error": f"Export folder not found: {export_path}"}
-        except Exception as e:
-            logger.error(f"Error opening export folder: {e}")
-            return {"success": False, "error": str(e)}
-
-    def close_window(self):
-        """Close the modal window"""
-        if self.window:
-            self.window.destroy()
+                self._set_status(f"Export folder not found: {export_path}", is_error=True)
+        except Exception as exc:
+            logger.error("Open folder failed: %s", exc)
+            self._set_status(str(exc), is_error=True)
 
 
 def open_export_modal(config):
-    """
-    Open the export modal window in a separate process.
-
-    Args:
-        config: Full configuration dict
-
-    This function launches the export UI in a separate process to avoid blocking
-    the main thread and to allow multiple windows to be opened simultaneously.
-    """
+    """Open the export modal in a separate subprocess."""
     try:
-        logger.info("Launching export modal in separate process")
-        process = multiprocessing.Process(
-            target=_run_export_modal_process,
-            args=(config,),
-            daemon=True
-        )
-        process.start()
-        logger.info("Export modal process started")
+        import subprocess
 
-    except Exception as e:
-        logger.error(f"Error opening export modal: {e}")
-        raise
+        exe_path = sys.executable
+        logger.info("Opening export modal in separate subprocess (exe: %s)...", exe_path)
+
+        process = subprocess.Popen(
+            [exe_path, "--modal=export"],
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
+        )
+
+        logger.info("Export modal subprocess started (PID: %s)", process.pid)
+
+    except Exception as exc:
+        logger.error("Error opening export modal: %s", exc)
+        _show_error_messagebox("Export Modal Error", str(exc))
 
 
 def _open_export_modal_original(config):
-    """
-    Original implementation - opens export modal (runs in subprocess).
-
-    Args:
-        config: Full configuration dict
-    """
     try:
-        import webview
-        import base64
-
-        # Create API instance
-        api = ExportAPI(config)
-
-        # Convert logo.png to base64 for embedding
-        logo_base64 = ""
-        try:
-            if getattr(sys, 'frozen', False):
-                logo_path = os.path.join(sys._MEIPASS, 'logo.png')
-            else:
-                # Go up 3 levels from src/core/export_ui.py to bridge/
-                logo_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'logo.png')
-
-            if os.path.exists(logo_path):
-                with open(logo_path, 'rb') as f:
-                    logo_base64 = base64.b64encode(f.read()).decode('utf-8')
-                logger.debug(f"Logo loaded from {logo_path}")
-            else:
-                logger.warning(f"Logo not found at {logo_path}")
-        except Exception as e:
-            logger.warning(f"Error loading logo: {e}")
-
-        # Build HTML content with embedded logo
-        if logo_base64:
-            logo_html = f'<img src="data:image/png;base64,{logo_base64}" alt="BAB Cloud" class="h-16 w-auto">'
-        else:
-            # Fallback to text-based logo if image not available
-            logo_html = '''<div class="bg-white p-3 rounded-lg shadow-lg">
-                        <div class="text-center">
-                            <div class="text-blue-700 font-black text-2xl leading-none">SOLU</div>
-                            <div class="bg-gray-800 text-white font-black text-xl px-2 py-1 mt-1 rounded">TECH</div>
-                            <div class="text-gray-800 font-bold text-xs mt-1">SALESBOOK EXPORT</div>
-                        </div>
-                    </div>'''
-
-        # HTML content for the export UI
-        html_content = r'''
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Salesbook Export</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
-        body {{
-            font-family: 'Inter', sans-serif;
-        }}
-        .status-message {{
-            transition: all 0.3s ease;
-        }}
-    </style>
-</head>
-<body class="bg-gray-50 m-0 p-0">
-    <div class="bg-white max-w-4xl mx-auto shadow-xl" style="min-height: 100vh;">
-
-        <!-- Header with Logo -->
-        <div class="bg-gradient-to-r from-blue-700 to-blue-800 p-6 rounded-b-2xl shadow-lg">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-4">
-                    {logo_html}
-                    <div>
-                        <h1 class="text-3xl font-bold text-white">Salesbook Export</h1>
-                        <p class="text-blue-100 text-sm">Export transaction data to CSV</p>
-                    </div>
-                </div>
-
-                <!-- Quick Action: Open Folder -->
-                <button onclick="openExportFolder()" class="bg-white/10 backdrop-blur-sm border border-white/20 text-white hover:bg-white/20 font-semibold px-6 py-3 rounded-lg transition duration-150">
-                    📁 Open Export Folder
-                </button>
-            </div>
-        </div>
-
-        <!-- Main Content -->
-        <div class="p-6 space-y-6">
-
-            <!-- Export by Single Date -->
-            <div class="bg-white border-2 border-blue-500 rounded-xl p-6 shadow-md">
-                <h2 class="text-xl font-bold text-gray-800 mb-4">Export by Date</h2>
-                <p class="text-sm text-gray-600 mb-4">Export salesbook for a specific date</p>
-
-                <div class="flex gap-3">
-                    <input type="date" id="single-date" class="flex-1 p-3 border-2 border-gray-300 rounded-lg text-base focus:border-blue-500 focus:outline-none">
-                    <button onclick="exportByDate()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-8 py-3 rounded-lg transition duration-150 shadow hover:shadow-lg whitespace-nowrap">
-                        Export Date
-                    </button>
-                </div>
-            </div>
-
-            <!-- Export by Month -->
-            <div class="bg-white border-2 border-green-500 rounded-xl p-6 shadow-md">
-                <h2 class="text-xl font-bold text-gray-800 mb-4">Export by Month</h2>
-                <p class="text-sm text-gray-600 mb-4">Export all transactions for an entire month</p>
-
-                <div class="flex gap-3">
-                    <select id="month-select" class="flex-1 p-3 border-2 border-gray-300 rounded-lg text-base focus:border-green-500 focus:outline-none">
-                        <option value="1">January</option>
-                        <option value="2">February</option>
-                        <option value="3">March</option>
-                        <option value="4">April</option>
-                        <option value="5">May</option>
-                        <option value="6">June</option>
-                        <option value="7">July</option>
-                        <option value="8">August</option>
-                        <option value="9">September</option>
-                        <option value="10">October</option>
-                        <option value="11">November</option>
-                        <option value="12">December</option>
-                    </select>
-                    <input type="number" id="year-select" min="2020" max="2030" class="w-32 p-3 border-2 border-gray-300 rounded-lg text-base focus:border-green-500 focus:outline-none" placeholder="Year">
-                    <button onclick="exportByMonth()" class="bg-green-600 hover:bg-green-700 text-white font-bold px-8 py-3 rounded-lg transition duration-150 shadow hover:shadow-lg whitespace-nowrap">
-                        Export Month
-                    </button>
-                </div>
-            </div>
-
-            <!-- Export by Date Range -->
-            <div class="bg-white border-2 border-purple-500 rounded-xl p-6 shadow-md">
-                <h2 class="text-xl font-bold text-gray-800 mb-4">Export by Date Range</h2>
-                <p class="text-sm text-gray-600 mb-4">Export transactions for a custom date range</p>
-
-                <div class="flex gap-3">
-                    <div class="flex-1 flex gap-2 items-center">
-                        <label class="text-sm font-semibold text-gray-700 whitespace-nowrap">From:</label>
-                        <input type="date" id="start-date" class="flex-1 p-3 border-2 border-gray-300 rounded-lg text-base focus:border-purple-500 focus:outline-none">
-                    </div>
-                    <div class="flex-1 flex gap-2 items-center">
-                        <label class="text-sm font-semibold text-gray-700 whitespace-nowrap">To:</label>
-                        <input type="date" id="end-date" class="flex-1 p-3 border-2 border-gray-300 rounded-lg text-base focus:border-purple-500 focus:outline-none">
-                    </div>
-                    <button onclick="exportByDateRange()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold px-8 py-3 rounded-lg transition duration-150 shadow hover:shadow-lg whitespace-nowrap">
-                        Export Range
-                    </button>
-                </div>
-            </div>
-
-            <!-- Status Messages -->
-            <div id="status-container" class="hidden status-message">
-                <div id="status-message" class="p-4 rounded-lg"></div>
-            </div>
-
-            <!-- Export Results -->
-            <div id="results-container" class="hidden">
-                <div class="bg-gray-50 border-2 border-gray-300 rounded-xl p-6">
-                    <h3 class="text-lg font-bold text-gray-800 mb-3">Export Results</h3>
-                    <div id="results-content" class="space-y-2"></div>
-                </div>
-            </div>
-
-        </div>
-
-    </div>
-
-    <script>
-        // Initialize date inputs with today's date
-        const today = new Date().toISOString().split('T')[0];
-        document.getElementById('single-date').value = today;
-        document.getElementById('start-date').value = today;
-        document.getElementById('end-date').value = today;
-
-        // Set current month and year
-        const now = new Date();
-        document.getElementById('month-select').value = (now.getMonth() + 1).toString();
-        document.getElementById('year-select').value = now.getFullYear();
-
-        function showStatus(message, isError = false) {{
-            const container = document.getElementById('status-container');
-            const statusDiv = document.getElementById('status-message');
-
-            container.classList.remove('hidden');
-            statusDiv.className = `p-4 rounded-lg ${{isError ? 'bg-red-100 border-2 border-red-400 text-red-800' : 'bg-green-100 border-2 border-green-400 text-green-800'}}`;
-            statusDiv.innerHTML = `<p class="font-semibold">${{message}}</p>`;
-
-            // Auto-hide success messages after 5 seconds
-            if (!isError) {{
-                setTimeout(() => {{
-                    container.classList.add('hidden');
-                }}, 5000);
-            }}
-        }}
-
-        function showResults(files) {{
-            const container = document.getElementById('results-container');
-            const content = document.getElementById('results-content');
-
-            container.classList.remove('hidden');
-
-            let html = '';
-            files.forEach(file => {{
-                html += `
-                    <div class="bg-white p-3 rounded border border-gray-200">
-                        <p class="font-semibold text-gray-800">${{file.date}}</p>
-                        <p class="text-xs text-gray-600 mt-1">Summary: ${{file.summary}}</p>
-                        ${{file.details ? `<p class="text-xs text-gray-600">Details: ${{file.details}}</p>` : ''}}
-                    </div>
-                `;
-            }});
-
-            content.innerHTML = html;
-        }}
-
-        async function exportByDate() {{
-            const dateInput = document.getElementById('single-date');
-            const date = dateInput.value;
-
-            if (!date) {{
-                showStatus('Please select a date', true);
-                return;
-            }}
-
-            showStatus('Exporting salesbook for ' + date + '...', false);
-
-            try {{
-                const result = await pywebview.api.export_by_date(date);
-
-                if (result.success) {{
-                    showStatus(result.message, false);
-                    if (result.summary_file) {{
-                        showResults([{{
-                            date: date,
-                            summary: result.summary_file,
-                            details: result.details_file
-                        }}]);
-                    }}
-                }} else {{
-                    showStatus('Error: ' + result.error, true);
-                }}
-            }} catch (error) {{
-                showStatus('Error: ' + error, true);
-            }}
-        }}
-
-        async function exportByMonth() {{
-            const month = document.getElementById('month-select').value;
-            const year = document.getElementById('year-select').value;
-
-            if (!year) {{
-                showStatus('Please enter a year', true);
-                return;
-            }}
-
-            showStatus(`Exporting salesbook for ${{year}}-${{month.padStart(2, '0')}}... This may take a moment.`, false);
-
-            try {{
-                const result = await pywebview.api.export_by_month(year, month);
-
-                if (result.success) {{
-                    showStatus(result.message, false);
-                    if (result.files && result.files.length > 0) {{
-                        showResults(result.files);
-                    }}
-                }} else {{
-                    showStatus('Error: ' + result.error, true);
-                }}
-            }} catch (error) {{
-                showStatus('Error: ' + error, true);
-            }}
-        }}
-
-        async function exportByDateRange() {{
-            const startDate = document.getElementById('start-date').value;
-            const endDate = document.getElementById('end-date').value;
-
-            if (!startDate || !endDate) {{
-                showStatus('Please select both start and end dates', true);
-                return;
-            }}
-
-            showStatus(`Exporting salesbook from ${{startDate}} to ${{endDate}}... This may take a moment.`, false);
-
-            try {{
-                const result = await pywebview.api.export_by_date_range(startDate, endDate);
-
-                if (result.success) {{
-                    showStatus(result.message, false);
-                    if (result.files && result.files.length > 0) {{
-                        showResults(result.files);
-                    }}
-                }} else {{
-                    showStatus('Error: ' + result.error, true);
-                }}
-            }} catch (error) {{
-                showStatus('Error: ' + error, true);
-            }}
-        }}
-
-        async function openExportFolder() {{
-            try {{
-                const result = await pywebview.api.open_export_folder();
-
-                if (!result.success) {{
-                    showStatus('Error: ' + result.error, true);
-                }}
-            }} catch (error) {{
-                showStatus('Error: ' + error, true);
-            }}
-        }}
-    </script>
-</body>
-</html>
-'''
-
-        # Inject logo into HTML
-        html_content = html_content.replace('{logo_html}', logo_html)
-
-        # Create and show the window
-        window = webview.create_window(
-            'Salesbook Export',
-            html=html_content,
-            js_api=api,
-            width=900,
-            height=700,
-            resizable=True,
-            frameless=False
-        )
-
-        api.window = window
-
-        logger.info("Starting export modal webview")
-        webview.start(debug=False)
-        logger.info("Export modal window closed")
-
-    except Exception as e:
-        logger.error(f"Error in export modal: {e}")
-        import traceback
-        traceback.print_exc()
+        from PySide6.QtWidgets import QApplication
+    except Exception as exc:
+        _show_error_messagebox("Export Modal Error", f"PySide6 is not available: {exc}")
         raise
+
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication([])
+
+    window = ExportWindow(config)
+    window.window.show()
+    app.exec()

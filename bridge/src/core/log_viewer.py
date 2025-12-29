@@ -1,236 +1,306 @@
 """
 Log Viewer Window for BAB-Cloud PrintHub.
 
-Opens a separate window to display application logs in real-time.
-Uses multiprocessing to allow simultaneous windows with fiscal tools modal.
+PySide6-based modal for viewing and clearing logs.
 """
 
 import os
 import sys
 import logging
-import multiprocessing
+import ctypes
 
 logger = logging.getLogger(__name__)
 
 
-def _run_log_viewer_process(log_file_path, icon_path, logo_base64):
-    """Run log viewer in separate process (internal function)."""
+def _show_error_messagebox(title, message):
+    """Show native Windows error dialog for debugging modal failures."""
     try:
-        import webview
+        ctypes.windll.user32.MessageBoxW(0, str(message), title, 0x10)  # MB_ICONERROR
+    except Exception:
+        pass
 
-        # Create API for log operations
-        class LogViewerAPI:
-            def __init__(self, log_path):
-                self.log_path = log_path
-                self.window = None
 
-            def get_logs(self, lines=500):
-                """Get last N lines from log file."""
-                try:
-                    if not os.path.exists(self.log_path):
-                        return {"success": False, "error": "Log file not found"}
+def _is_compiled():
+    """Check if running as compiled executable (Nuitka or PyInstaller)."""
+    if '__compiled__' in dir():
+        return True
+    if getattr(sys, 'frozen', False):
+        return True
+    if '.dist' in sys.executable:
+        return True
+    return False
 
-                    with open(self.log_path, 'r', encoding='utf-8', errors='replace') as f:
-                        all_lines = f.readlines()
-                        last_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
-                        return {"success": True, "logs": ''.join(last_lines)}
-                except Exception as e:
-                    return {"success": False, "error": str(e)}
 
-            def clear_logs(self):
-                """Clear the log file."""
-                try:
-                    with open(self.log_path, 'w', encoding='utf-8') as f:
-                        f.write("")
-                    return {"success": True, "message": "Logs cleared"}
-                except Exception as e:
-                    return {"success": False, "error": str(e)}
+def _resolve_base_dir():
+    env_base = os.environ.get("BAB_UI_BASE")
+    if env_base:
+        return env_base
+    if _is_compiled():
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-            def close_window(self):
-                """Close the log viewer window."""
-                if self.window:
-                    self.window.destroy()
 
-        # Create API instance
-        api = LogViewerAPI(log_file_path)
+class LogViewerWindow:
+    """PySide6 log viewer window."""
 
-        # HTML content
-        html_content = r'''
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BAB Cloud - Log Viewer</title>
-    FAVICON_PLACEHOLDER
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap');
-        body {
-            font-family: 'Inter', sans-serif;
-        }
-        #logContent {
-            font-family: 'JetBrains Mono', 'Courier New', monospace;
-            font-size: 12px;
-            line-height: 1.5;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
-    </style>
-</head>
-<body class="bg-gray-900 p-0 m-0">
-    <div class="flex flex-col h-screen">
-        <!-- Header -->
-        <div class="bg-gradient-to-r from-gray-800 to-gray-900 p-4 border-b border-gray-700">
-            <div class="flex items-center justify-between">
-                <div>
-                    <h1 class="text-2xl font-bold text-white">📋 BAB Cloud - Log Viewer</h1>
-                    <p class="text-gray-400 text-sm">Application Logs (Last 500 lines)</p>
-                </div>
-                <div class="flex gap-2">
-                    <button onclick="refreshLogs()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg transition duration-150">
-                        🔄 Refresh
-                    </button>
-                    <button onclick="clearLogs()" class="bg-red-600 hover:bg-red-700 text-white font-semibold px-4 py-2 rounded-lg transition duration-150">
-                        🗑️ Clear Logs
-                    </button>
-                    <button onclick="closeWindow()" class="bg-gray-600 hover:bg-gray-700 text-white font-semibold px-4 py-2 rounded-lg transition duration-150">
-                        ✖ Close
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Log Content -->
-        <div class="flex-1 overflow-auto bg-black p-4">
-            <pre id="logContent" class="text-green-400 text-xs select-text">Loading logs...</pre>
-        </div>
-
-        <!-- Footer -->
-        <div class="bg-gray-800 p-2 border-t border-gray-700">
-            <p class="text-gray-500 text-xs text-center">Auto-refreshes every 2 seconds</p>
-        </div>
-    </div>
-
-    <script>
-        let autoRefreshInterval;
-
-        async function refreshLogs() {
-            try {
-                const result = await pywebview.api.get_logs(500);
-                if (result.success) {
-                    const logContent = document.getElementById('logContent');
-                    logContent.textContent = result.logs || 'No logs available';
-                    // Auto-scroll to bottom
-                    logContent.scrollTop = logContent.scrollHeight;
-                } else {
-                    document.getElementById('logContent').textContent = 'Error: ' + result.error;
-                }
-            } catch (error) {
-                console.error('Error loading logs:', error);
-                document.getElementById('logContent').textContent = 'Error loading logs: ' + error;
-            }
-        }
-
-        async function clearLogs() {
-            if (confirm('Are you sure you want to clear all logs?')) {
-                try {
-                    const result = await pywebview.api.clear_logs();
-                    if (result.success) {
-                        refreshLogs();
-                    } else {
-                        alert('Error clearing logs: ' + result.error);
-                    }
-                } catch (error) {
-                    alert('Error: ' + error);
-                }
-            }
-        }
-
-        function closeWindow() {
-            pywebview.api.close_window();
-        }
-
-        // Initialize on load
-        window.addEventListener('pywebviewready', function() {
-            refreshLogs();
-            // Auto-refresh every 2 seconds
-            autoRefreshInterval = setInterval(refreshLogs, 2000);
-        });
-
-        // Clean up on window close
-        window.addEventListener('beforeunload', function() {
-            if (autoRefreshInterval) {
-                clearInterval(autoRefreshInterval);
-            }
-        });
-    </script>
-</body>
-</html>
-        '''
-
-        # Add favicon to HTML
-        favicon_tag = ""
-        if logo_base64:
-            favicon_tag = f'<link rel="icon" type="image/png" href="data:image/png;base64,{logo_base64}">'
-        html_content = html_content.replace('FAVICON_PLACEHOLDER', favicon_tag)
-
-        # Create window
-        window = webview.create_window(
-            title="BAB Cloud - Log Viewer",
-            html=html_content,
-            js_api=api,
-            width=1000,
-            height=700,
-            resizable=True,
-            min_size=(800, 500)
+    def __init__(self, log_file_path, icon_path):
+        from PySide6.QtCore import Qt, QTimer
+        from PySide6.QtGui import QIcon, QTextCursor
+        from PySide6.QtWidgets import (
+            QMainWindow,
+            QWidget,
+            QVBoxLayout,
+            QHBoxLayout,
+            QLabel,
+            QPushButton,
+            QPlainTextEdit,
+            QMessageBox,
         )
-        api.window = window
-        webview.start()
 
-    except Exception as e:
+        self._Qt = Qt
+        self._QTimer = QTimer
+        self._QTextCursor = QTextCursor
+        self._QMessageBox = QMessageBox
+
+        self.window = QMainWindow()
+        self.window.setWindowTitle("BAB Cloud - Log Viewer")
+        self.window.resize(1000, 700)
+        self.window.setMinimumSize(800, 500)
+        if icon_path and os.path.exists(icon_path):
+            self.window.setWindowIcon(QIcon(icon_path))
+
+        central = QWidget()
+        self.window.setCentralWidget(central)
+
+        layout = QVBoxLayout(central)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        header = QWidget()
+        header.setObjectName("header")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(16, 14, 16, 14)
+        header_layout.setSpacing(10)
+
+        left = QWidget()
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(4)
+
+        title = QLabel("BAB Cloud - Log Viewer")
+        title.setObjectName("title")
+        subtitle = QLabel("Application Logs (Last 500 lines)")
+        subtitle.setObjectName("subtitle")
+        left_layout.addWidget(title)
+        left_layout.addWidget(subtitle)
+
+        buttons = QWidget()
+        buttons_layout = QHBoxLayout(buttons)
+        buttons_layout.setContentsMargins(0, 0, 0, 0)
+        buttons_layout.setSpacing(8)
+
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.setObjectName("refreshButton")
+        clear_btn = QPushButton("Clear Logs")
+        clear_btn.setObjectName("clearButton")
+        close_btn = QPushButton("Close")
+        close_btn.setObjectName("closeButton")
+
+        buttons_layout.addWidget(refresh_btn)
+        buttons_layout.addWidget(clear_btn)
+        buttons_layout.addWidget(close_btn)
+
+        header_layout.addWidget(left, 1)
+        header_layout.addWidget(buttons, 0, self._Qt.AlignRight)
+
+        self.log_content = QPlainTextEdit()
+        self.log_content.setReadOnly(True)
+        self.log_content.setObjectName("logContent")
+        self.log_content.setLineWrapMode(QPlainTextEdit.NoWrap)
+
+        footer = QWidget()
+        footer.setObjectName("footer")
+        footer_layout = QHBoxLayout(footer)
+        footer_layout.setContentsMargins(8, 6, 8, 6)
+        footer_layout.setSpacing(0)
+        footer_label = QLabel("Auto-refreshes every 2 seconds")
+        footer_label.setObjectName("footerText")
+        footer_layout.addStretch(1)
+        footer_layout.addWidget(footer_label)
+        footer_layout.addStretch(1)
+
+        layout.addWidget(header)
+        layout.addWidget(self.log_content, 1)
+        layout.addWidget(footer)
+
+        self._apply_styles()
+
+        self.log_file_path = log_file_path
+        self._max_lines = 500
+
+        refresh_btn.clicked.connect(self.refresh_logs)
+        clear_btn.clicked.connect(self.clear_logs)
+        close_btn.clicked.connect(self.window.close)
+
+        self.timer = self._QTimer(self.window)
+        self.timer.timeout.connect(self.refresh_logs)
+        self.timer.start(2000)
+
+        self.refresh_logs()
+
+    def _apply_styles(self):
+        self.window.setStyleSheet(
+            """
+            QMainWindow {
+                background-color: #111827;
+                color: #ffffff;
+            }
+            QWidget#header {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #1f2937, stop:1 #111827);
+                border-bottom: 1px solid #374151;
+            }
+            QLabel#title {
+                font-size: 22px;
+                font-weight: 700;
+                color: #ffffff;
+            }
+            QLabel#subtitle {
+                font-size: 12px;
+                color: #9ca3af;
+            }
+            QPushButton {
+                border: none;
+                padding: 6px 14px;
+                border-radius: 6px;
+                font-weight: 600;
+                color: #ffffff;
+            }
+            QPushButton#refreshButton {
+                background-color: #2563eb;
+            }
+            QPushButton#refreshButton:hover {
+                background-color: #1d4ed8;
+            }
+            QPushButton#clearButton {
+                background-color: #dc2626;
+            }
+            QPushButton#clearButton:hover {
+                background-color: #b91c1c;
+            }
+            QPushButton#closeButton {
+                background-color: #4b5563;
+            }
+            QPushButton#closeButton:hover {
+                background-color: #374151;
+            }
+            QPlainTextEdit#logContent {
+                background-color: #000000;
+                color: #4ade80;
+                border: none;
+                font-family: Consolas, "Courier New", monospace;
+                font-size: 12px;
+            }
+            QWidget#footer {
+                background-color: #1f2937;
+                border-top: 1px solid #374151;
+            }
+            QLabel#footerText {
+                color: #6b7280;
+                font-size: 11px;
+            }
+            """
+        )
+
+    def refresh_logs(self):
+        try:
+            if not os.path.exists(self.log_file_path):
+                self.log_content.setPlainText("Log file not found")
+                return
+
+            with open(self.log_file_path, 'r', encoding='utf-8', errors='replace') as handle:
+                lines = handle.readlines()
+
+            if len(lines) > self._max_lines:
+                lines = lines[-self._max_lines:]
+
+            self.log_content.setPlainText(''.join(lines) or "No logs available")
+            self.log_content.moveCursor(self._QTextCursor.End)
+        except Exception as exc:
+            self.log_content.setPlainText(f"Error loading logs: {exc}")
+
+    def clear_logs(self):
+        reply = self._QMessageBox.question(
+            self.window,
+            "Clear Logs",
+            "Clear all logs?",
+            self._QMessageBox.Yes | self._QMessageBox.No,
+            self._QMessageBox.No,
+        )
+        if reply != self._QMessageBox.Yes:
+            return
+
+        try:
+            with open(self.log_file_path, 'w', encoding='utf-8') as handle:
+                handle.write("")
+            self.refresh_logs()
+        except Exception as exc:
+            self._QMessageBox.warning(self.window, "Clear Logs", f"Error clearing logs: {exc}")
+
+
+def _run_log_viewer_process(log_file_path, icon_path):
+    try:
+        from PySide6.QtWidgets import QApplication
+    except Exception as exc:
+        _show_error_messagebox("Log Viewer Error", f"PySide6 is not available: {exc}")
         raise
+
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication([])
+
+    viewer = LogViewerWindow(log_file_path, icon_path)
+    viewer.window.show()
+    app.exec()
+
+
+def _run_log_viewer_standalone(config):
+    """
+    Run log viewer as standalone modal (called when exe launched with --modal=log_viewer).
+    This runs directly without spawning another subprocess.
+    """
+    logger.info("[LOG_VIEWER] _run_log_viewer_standalone called")
+
+    base_dir = _resolve_base_dir()
+    icon_path = os.path.join(base_dir, 'logo.png')
+    log_file_path = os.path.join(base_dir, 'log.log')
+    logger.info("[LOG_VIEWER] base_dir: %s", base_dir)
+    logger.info("[LOG_VIEWER] log_file_path: %s", log_file_path)
+    logger.info("[LOG_VIEWER] icon_path: %s", icon_path)
+
+    _run_log_viewer_process(log_file_path, icon_path)
 
 
 def open_log_viewer_window():
     """
-    Open the log viewer window in a separate process.
+    Open the log viewer window in a completely separate subprocess.
 
-    Displays the contents of log.log file in a webview window with auto-refresh.
-    Uses multiprocessing to allow simultaneous windows.
+    Spawns a new instance of the executable with --modal=log_viewer argument.
+    This isolates the UI from pystray's event loop.
     """
     try:
-        # Determine log file path
-        if getattr(sys, 'frozen', False):
-            base_dir = os.path.dirname(sys.executable)
-            icon_path = os.path.join(sys._MEIPASS, 'logo.png')
-        else:
-            # Running as script - go up 3 levels from src/core/log_viewer.py to bridge/
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            icon_path = os.path.join(base_dir, 'logo.png')
+        import subprocess
 
-        log_file_path = os.path.join(base_dir, 'log.log')
+        exe_path = sys.executable
+        logger.info("Opening log viewer in separate subprocess (exe: %s)...", exe_path)
 
-        # Load logo as base64 for favicon
-        logo_base64 = ""
-        if os.path.exists(icon_path):
-            try:
-                import base64
-                with open(icon_path, 'rb') as f:
-                    logo_base64 = base64.b64encode(f.read()).decode('utf-8')
-            except Exception as e:
-                logger.warning(f"Could not load logo for favicon: {e}")
-
-        # Launch log viewer in separate process to allow simultaneous windows
-        logger.info(f"Launching log viewer in separate process for {log_file_path}")
-        process = multiprocessing.Process(
-            target=_run_log_viewer_process,
-            args=(log_file_path, icon_path, logo_base64),
-            daemon=True
+        process = subprocess.Popen(
+            [exe_path, '--modal=log_viewer'],
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == 'win32' else 0,
         )
-        process.start()
-        logger.info("Log viewer process started")
 
-    except Exception as e:
-        logger.error(f"Error opening log viewer window: {e}")
+        logger.info("Log viewer subprocess started (PID: %s)", process.pid)
+
+    except Exception as exc:
+        logger.error("Error opening log viewer window: %s", exc)
         raise

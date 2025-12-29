@@ -23,6 +23,7 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+ui_runtime/
 
 # PyInstaller
 *.manifest
@@ -69,6 +70,8 @@ transactions/
 Thumbs.db
 desktop.ini
 $RECYCLE.BIN/
+*.exe
+*.dll
 
 # Config backups
 config.json.bak
@@ -77,3 +80,10 @@ config.json.tmp
 # Tools output
 tools/output/
 tools/*.log
+
+# Nuitka build artifacts
+dist-nuitka/
+nuitka-crash-report.xml
+
+# Windows special files
+nul

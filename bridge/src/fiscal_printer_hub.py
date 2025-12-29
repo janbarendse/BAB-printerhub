@@ -39,14 +39,6 @@ from src.version import VERSION
 # Queue for main thread communication (for modal UI)
 modal_queue = queue.Queue()
 
-# Pre-import webview at startup for faster modal opening
-try:
-    import webview
-    logger.info("Webview module pre-loaded")
-except Exception as e:
-    logger.warning(f"Could not pre-load webview module: {e}")
-
-
 def main():
     """
     Main application entry point.
@@ -136,6 +128,22 @@ def main():
         sys.exit(1)
 
     # =========================================================================
+    # Step 4.5: Start IPC Server for UI Modals
+    # =========================================================================
+    logger.info("[4.5/7] Starting IPC server...")
+    from src.core.ipc import PipeServer, make_pipe_name, make_auth_key
+    from src.core.ipc_handlers import CoreCommandHandler
+    from src.core.ui_launcher import UIModalLauncher
+
+    ipc_handler = CoreCommandHandler(config, printer, software)
+    pipe_name = make_pipe_name()
+    auth_key = make_auth_key()
+    ipc_server = PipeServer(pipe_name, auth_key, ipc_handler.handle, log=logger)
+    ipc_server.start()
+
+    ui_launcher = UIModalLauncher(pipe_name, auth_key)
+
+    # =========================================================================
     # Step 5: Start BABPortal Poller (Cloud Mode Only)
     # =========================================================================
     logger.info("[5/7] Checking BABPortal configuration...")
@@ -181,10 +189,6 @@ def main():
     logger.info("Check system tray for application icon")
     logger.info("=" * 60)
 
-    from src.core.fiscal_ui import open_fiscal_tools_modal
-    from src.core.export_ui import open_export_modal
-    from src.core.log_viewer import open_log_viewer_window
-
     # Main thread loop: Process modal UI requests
     while True:
         try:
@@ -194,26 +198,30 @@ def main():
                 if command == 'open_fiscal_tools':
                     logger.info("Opening fiscal tools modal...")
                     try:
-                        # Launch modal in separate process (non-blocking)
-                        open_fiscal_tools_modal(printer, config)
+                        ui_launcher.launch("fiscal_tools")
                     except Exception as e:
                         logger.error(f"Error opening fiscal tools: {e}")
 
                 elif command == 'open_export_modal':
                     logger.info("Opening export modal...")
                     try:
-                        # Launch export modal in separate process (non-blocking)
-                        open_export_modal(config)
+                        ui_launcher.launch("export")
                     except Exception as e:
                         logger.error(f"Error opening export modal: {e}")
 
                 elif command == 'open_log_window':
                     logger.info("Opening log viewer window...")
                     try:
-                        open_log_viewer_window()
-                        logger.info("Log viewer window closed")
+                        ui_launcher.launch("log_viewer")
                     except Exception as e:
                         logger.error(f"Error opening log viewer: {e}")
+
+                elif command == 'open_settings':
+                    logger.info("Opening settings window...")
+                    try:
+                        ui_launcher.launch("settings")
+                    except Exception as e:
+                        logger.error(f"Error opening settings: {e}")
 
                 elif command == 'quit':
                     logger.info("Quit command received")
@@ -249,8 +257,86 @@ def main():
     # Release instance lock
     instance_lock.release()
 
+    # Stop IPC server
+    try:
+        ipc_server.stop()
+    except Exception:
+        pass
+
     logger.info("BAB-Cloud PrintHub stopped")
     logger.info("=" * 60)
+
+
+def _show_modal_error(title, message):
+    """Show native Windows error dialog for modal errors."""
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(0, str(message), title, 0x10)  # MB_ICONERROR
+    except Exception:
+        pass
+
+
+def _is_compiled():
+    """Check if running as compiled executable (Nuitka or PyInstaller)."""
+    # Nuitka sets __compiled__ at module level
+    if '__compiled__' in dir():
+        return True
+    # PyInstaller sets sys.frozen
+    if getattr(sys, 'frozen', False):
+        return True
+    # Check if executable is in a .dist folder (Nuitka standalone)
+    if '.dist' in sys.executable:
+        return True
+    return False
+
+
+def run_modal_standalone(modal_name):
+    """
+    Run a modal in standalone mode (separate process).
+    This is called when the executable is launched with --modal=X argument.
+    """
+    logger.info(f"[MODAL SUBPROCESS] Starting modal: {modal_name}")
+
+    try:
+        from src.core.config_manager import load_config
+
+        # Load config - always use executable directory for compiled mode
+        if _is_compiled():
+            config_path = os.path.join(os.path.dirname(sys.executable), 'config.json')
+        else:
+            config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'config.json')
+
+        logger.info(f"[MODAL SUBPROCESS] Loading config from: {config_path}")
+        config = load_config(config_path)
+        logger.info(f"[MODAL SUBPROCESS] Config loaded successfully")
+
+        if modal_name == 'log_viewer':
+            logger.info(f"[MODAL SUBPROCESS] Launching log_viewer...")
+            from src.core.log_viewer import _run_log_viewer_standalone
+            _run_log_viewer_standalone(config)
+        elif modal_name == 'fiscal_tools':
+            logger.info(f"[MODAL SUBPROCESS] Launching fiscal_tools...")
+            from src.core.fiscal_ui import _open_fiscal_tools_modal_original
+            _open_fiscal_tools_modal_original(config)
+        elif modal_name == 'export':
+            logger.info(f"[MODAL SUBPROCESS] Launching export...")
+            from src.core.export_ui import _open_export_modal_original
+            _open_export_modal_original(config)
+        elif modal_name == 'settings':
+            logger.info(f"[MODAL SUBPROCESS] Launching settings...")
+            from src.core.config_settings_ui import _open_config_settings_window
+            _open_config_settings_window(config_path, config)
+        else:
+            logger.error(f"[MODAL SUBPROCESS] Unknown modal: {modal_name}")
+            _show_modal_error("Modal Error", f"Unknown modal: {modal_name}")
+            sys.exit(1)
+
+        logger.info(f"[MODAL SUBPROCESS] Modal {modal_name} closed normally")
+
+    except Exception as e:
+        logger.error(f"[MODAL SUBPROCESS] Error in {modal_name}: {e}", exc_info=True)
+        _show_modal_error("Modal Error", f"Error in {modal_name}:\n{e}")
+        raise
 
 
 if __name__ == "__main__":
@@ -258,6 +344,17 @@ if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()
 
+    # Check for modal mode (launched as subprocess for isolated webview)
+    if len(sys.argv) > 1 and sys.argv[1].startswith('--modal='):
+        modal_name = sys.argv[1].split('=')[1]
+        try:
+            run_modal_standalone(modal_name)
+        except Exception as e:
+            logger.error(f"[MODAL SUBPROCESS] Fatal error: {e}", exc_info=True)
+            _show_modal_error("Modal Error", f"Fatal error in {modal_name}:\n{e}")
+        sys.exit(0)
+
+    # Normal startup - run main application with system tray
     try:
         main()
     except Exception as e:

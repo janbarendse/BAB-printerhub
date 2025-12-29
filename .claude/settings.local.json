@@ -7,7 +7,19 @@
       "Bash(powershell -Command \"Get-ChildItem -Path ''C:\\\\Fbook'' | Format-Table Name, Length, LastWriteTime\")",
       "Bash(powershell -Command \"Get-Content -Path ''C:\\\\Fbook\\\\salesbook_summary_2025-12-24.csv'' -Head 10\")",
       "Bash(powershell:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(python src/fiscal_printer_hub.py:*)",
+      "Bash(where:*)",
+      "Bash(py:*)",
+      "Bash(git commit:*)",
+      "WebSearch",
+      "WebFetch(domain:pypi.org)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:nuitka.net)",
+      "Bash(dir:*)",
+      "Bash(taskkill:*)",
+      "Bash(tasklist:*)",
+      "Bash(findstr:*)"
     ]
   }
 }
