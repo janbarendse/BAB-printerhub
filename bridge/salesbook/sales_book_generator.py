@@ -20,13 +20,6 @@ from salesbook.printer_memory_reader import PrinterMemoryReader
 class SalesBookGenerator:
     """Generate Sales Book CSV files from printer memory"""
 
-    # Month names in English
-    MONTH_NAMES = {
-        1: "January", 2: "February", 3: "March", 4: "April",
-        5: "May", 6: "June", 7: "July", 8: "August",
-        9: "September", 10: "October", 11: "November", 12: "December"
-    }
-
     def __init__(self, printer_driver, config_path=None):
         """Initialize sales book generator
 
@@ -53,12 +46,29 @@ class SalesBookGenerator:
         self.CERTIFICATION_NUMBER = self.config.get('software', {}).get('certification_number', 'CERT2025')
         self.DEVICE_SERIAL = self.config.get('printer', {}).get('device_serial', '33554431')
         self.FISCAL_MEMORY_SERIAL = self.config.get('printer', {}).get('fiscal_memory_serial', 'FM000000')
+        self.CLIENT_CRIB = self.config.get('client', {}).get('NKF', {}).get('crib_number', '')
+        self.CASH_REGISTER = self.config.get('client', {}).get('NKF', {}).get('cash_register', '')
 
         # Get salesbook-specific config
         salesbook_config = self.config.get('salesbook', {})
         self.BASE_DIRECTORY = salesbook_config.get('csv_export_path', 'C:\\FBOOK')
         self.INCLUDE_SHA1 = salesbook_config.get('include_sha1_hash', True)
         self.INCLUDE_TRANSACTION_DETAILS = salesbook_config.get('include_transaction_details', True)
+        self.RETAILER_TAXPAYER_ID = salesbook_config.get(
+            'taxpayer_id',
+            self.config.get('business', {}).get('tax_number', ''),
+        )
+        self.BRANCH_CODE = str(salesbook_config.get('branch_code', '0'))
+        self.POS_NUMBER = str(salesbook_config.get('pos_number', self.CASH_REGISTER or '0'))
+        self.FISCAL_DEVICE_ID = salesbook_config.get('fiscal_device_id')
+        self.PROGRAM_PROVIDER = salesbook_config.get(
+            'program_provider',
+            self.config.get('business', {}).get('software_name', self.SOFTWARE_NAME),
+        )
+        self.TIP_LEGAL = str(salesbook_config.get('tip_legal', '2'))
+        self.DAILY_FILENAME_TEMPLATE = salesbook_config.get('daily_filename_template', 'SB{date}.001')
+        self.MONTHLY_FILENAME_TEMPLATE = salesbook_config.get('monthly_filename_template', 'SB{year}{month:02d}.001')
+        self.DEFAULT_CLIENT_CRIB = self.config.get('miscellaneous', {}).get('default_client_crib', '1000000000')
 
         logger.info("SalesBookGenerator initialized")
         logger.info(f"  Business: {self.BUSINESS_NAME}")
@@ -173,22 +183,29 @@ class SalesBookGenerator:
                     logger.warning(f"No transactions found for {date_str}")
 
             # Build CSV lines
-            line_type_1 = self._build_line_type_1(z_report, date_str)
-            line_type_2_records = self._build_line_type_2_records(transactions, z_report)
+            line_type_2_records = self._build_line_type_2_records(transactions)
+            line_type_1_fields = self._build_line_type_1_fields(z_report, line_type_2_records)
+            line_type_2_lines = [self._join_fields(record["fields"]) for record in line_type_2_records]
 
-            # Calculate SHA-1 hash
-            sha1_hash = self._calculate_sha1_hash(line_type_2_records) if self.INCLUDE_SHA1 else ""
+            if self.INCLUDE_SHA1:
+                line_type_1_fields[1] = ""
+                hash_input_lines = [self._join_fields(line_type_1_fields)] + line_type_2_lines
+                sha1_hash = self._calculate_sha1_hash(hash_input_lines)
+                line_type_1_fields[1] = sha1_hash
+            else:
+                sha1_hash = ""
+
+            line_type_1 = self._join_fields(line_type_1_fields)
 
             # Create directory structure
-            file_path = self._ensure_directory_structure(year, month, day)
+            file_path = self._ensure_daily_directory(year, month, day)
 
             if not file_path:
                 logger.error("Failed to create directory structure")
                 return None
 
             # Build filename
-            date_filename = date_obj.strftime("%Y%m%d")
-            csv_filename = f"daily_salesbook_{date_filename}.csv"
+            csv_filename = self._build_daily_filename(date_obj)
             full_path = os.path.join(file_path, csv_filename)
 
             # Write CSV file
@@ -197,7 +214,7 @@ class SalesBookGenerator:
                 f.write(line_type_1 + "\r\n")
 
                 # Write Line Type 2 records (transactions)
-                for line in line_type_2_records:
+                for line in line_type_2_lines:
                     f.write(line + "\r\n")
 
             logger.info(f"Daily sales book generated: {full_path}")
@@ -258,60 +275,64 @@ class SalesBookGenerator:
             if self.INCLUDE_TRANSACTION_DETAILS:
                 transactions = self.memory_reader.read_transactions_by_date(start_date, end_date)
 
-            # Group Z reports by date
+            # Group Z reports by date (YYYYMMDD)
             z_reports_by_date = {}
             for z_report in z_reports:
-                raw_data = z_report.get('raw_data', '')
-                if raw_data.startswith('20'):  # Sales reports only
-                    # Extract date from position 3-10
-                    if len(raw_data) >= 11:
-                        z_date = raw_data[3:11]
-                        if z_date not in z_reports_by_date:
-                            z_reports_by_date[z_date] = z_report
+                report_date = self._normalize_printer_date(z_report.get('date', ''))
+                if report_date and report_date not in z_reports_by_date:
+                    z_reports_by_date[report_date] = z_report
 
-            # Group transactions by date
+            # Group transactions by date (YYYYMMDD)
             transactions_by_date = {}
             for txn in transactions:
-                raw_data = txn.get('raw_data', '')
-                # Parse date from transaction (need to determine exact position)
-                # For now, extract all transactions
-                if raw_data not in transactions_by_date:
-                    transactions_by_date[raw_data] = []
-                transactions_by_date[raw_data].append(txn)
+                txn_date = self._normalize_printer_date(txn.get('date', ''))
+                if not txn_date:
+                    continue
+                transactions_by_date.setdefault(txn_date, []).append(txn)
 
             # Build all CSV lines
-            all_line_type_2 = []
             all_line_type_1 = []
+            all_line_type_2 = []
+            all_records = []
 
-            for z_date in sorted(z_reports_by_date.keys()):
-                z_report = z_reports_by_date[z_date]
-                date_str = self._printer_date_to_csv_date(z_date)
+            for day_key in sorted(z_reports_by_date.keys()):
+                z_report = z_reports_by_date[day_key]
+                day_transactions = transactions_by_date.get(day_key, [])
 
-                # Build Line Type 1 for this day
-                line_type_1 = self._build_line_type_1(z_report, date_str)
-                all_line_type_1.append(line_type_1)
+                day_records = self._build_line_type_2_records(day_transactions)
+                day_lines = [self._join_fields(record["fields"]) for record in day_records]
+                line_type_1_fields = self._build_line_type_1_fields(z_report, day_records)
 
-                # Build Line Type 2 for this day's transactions
-                # (TODO: Filter transactions by date)
-                day_transactions = transactions  # For now, use all
-                line_type_2_records = self._build_line_type_2_records(day_transactions, z_report)
-                all_line_type_2.extend(line_type_2_records)
+                if self.INCLUDE_SHA1:
+                    line_type_1_fields[1] = ""
+                    day_hash = self._calculate_sha1_hash([self._join_fields(line_type_1_fields)] + day_lines)
+                    line_type_1_fields[1] = day_hash
 
-            # Calculate SHA-1 hash from all Line Type 2
-            sha1_hash = self._calculate_sha1_hash(all_line_type_2) if self.INCLUDE_SHA1 else ""
+                all_line_type_1.append(self._join_fields(line_type_1_fields))
+                all_line_type_2.extend(day_lines)
+                all_records.extend(day_records)
 
-            # Build Line Type 3 (monthly header)
-            line_type_3 = self._build_line_type_3(year, month, sha1_hash)
+            line_type_3_fields = self._build_line_type_3_fields(all_records)
+            line_type_3_fields[1] = "" if self.INCLUDE_SHA1 else line_type_3_fields[1]
+
+            if self.INCLUDE_SHA1:
+                hash_input_lines = [self._join_fields(line_type_3_fields)] + all_line_type_1 + all_line_type_2
+                sha1_hash = self._calculate_sha1_hash(hash_input_lines)
+                line_type_3_fields[1] = sha1_hash
+            else:
+                sha1_hash = ""
+
+            line_type_3 = self._join_fields(line_type_3_fields)
 
             # Create directory structure
-            file_path = self._ensure_directory_structure(year, month)
+            file_path = self._ensure_monthly_directory(year, month)
 
             if not file_path:
                 logger.error("Failed to create directory structure")
                 return None
 
             # Build filename
-            csv_filename = f"monthly_salesbook_{year}{month:02d}.csv"
+            csv_filename = self._build_monthly_filename(year, month)
             full_path = os.path.join(file_path, csv_filename)
 
             # Write CSV file
@@ -319,18 +340,13 @@ class SalesBookGenerator:
                 # Line Type 3 (monthly header)
                 f.write(line_type_3 + "\r\n")
 
-                # Interleave Line Type 1 and Line Type 2 by date
-                line2_index = 0
+                # Line Type 1 (daily headers)
                 for line1 in all_line_type_1:
                     f.write(line1 + "\r\n")
 
-                    # Write corresponding transactions
-                    # (TODO: Properly associate transactions with days)
-                    # For now, write all after first day
-                    if line2_index == 0:
-                        for line2 in all_line_type_2:
-                            f.write(line2 + "\r\n")
-                        line2_index = len(all_line_type_2)
+                # Line Type 2 records
+                for line2 in all_line_type_2:
+                    f.write(line2 + "\r\n")
 
             logger.info(f"Monthly sales book generated: {full_path}")
             logger.info(f"  Z reports: {len(all_line_type_1)}")
@@ -344,313 +360,208 @@ class SalesBookGenerator:
             logger.error(f"Error generating monthly sales book: {e}")
             return None
 
-    def _build_line_type_1(self, z_report, date_str):
+    def _build_line_type_1_fields(self, z_report, line_type_2_records):
         """
-        Build CSV Line Type 1 (Daily Sales Book Header)
-
-        Args:
-            z_report: Dict with Z report data from printer
-            date_str: Date in YYYY-MM-DD or DD-MM-YYYY format
-
-        Returns:
-            String with 28 fields separated by ||
-
-        Format:
-            1||Daily sales book||BusinessName||TaxNumber||ReportDate||FirstNKF||LastNKF||
-            ZReportNumber||SalesCount||RefundCount||TrainingCount||CancelledCount||
-            TaxATaxable||TaxATotal||TaxBTaxable||TaxBTotal||TaxCTaxable||TaxCTotal||
-            TaxDTaxable||TaxDTotal||TaxETaxable||TaxETotal||TaxFTaxable||TaxFTotal||
-            ExemptAmount||TotalSales||TotalRefunds||TotalNet||
-            CashTotal||CardTotal||OtherPaymentTotal
+        Build Line Type 1 fields (Daily Sales Book Header) per spec.
         """
         try:
-            # Use parsed fields from Z report
-            z_number = z_report.get('z_number', '0')
-            start_nkf = z_report.get('start_nkf', '000000')
-            end_nkf = z_report.get('end_nkf', '000000')
-            sales_count = z_report.get('sales_count', '0')
-            refund_count = z_report.get('refund_count', '0')
-            void_count = z_report.get('void_count', '0')
-            training_count = z_report.get('training_count', '0')
+            totals = self._summarize_records(line_type_2_records)
+            first_nkk, last_nkk = self._find_nkk_bounds(line_type_2_records)
+            z_number = z_report.get('z_number', '')
 
-            # Tax totals
-            tax_a_taxable = z_report.get('tax_a_taxable', '0')
-            tax_a_total = z_report.get('tax_a_total', '0')
-            cash_total = z_report.get('cash_total', '0')
-            card_total = z_report.get('card_total', '0')
-            total_sales = z_report.get('total_sales', '0')
-            total_refunds = z_report.get('total_refunds', '0')
-            net_total = z_report.get('net_total', '0')
-
-            # Convert date to DD-MM-YYYY if needed
-            if '-' not in date_str and z_report.get('date'):
-                date_str = self._printer_date_to_csv_date(z_report.get('date'))
-
-            # Build Line Type 1 (28 fields)
             fields = [
-                "1",  # Line type
-                "Daily sales book",  # Description
-                self.BUSINESS_NAME,
-                self.TAX_NUMBER,
-                date_str,  # Report date
-                start_nkf,  # First NKF
-                end_nkf,  # Last NKF
-                z_number,  # Z report number
-                sales_count,  # Sales count
-                refund_count,  # Refund count
-                void_count,  # Training count (using void as proxy)
-                "0",  # Cancelled count
-                tax_a_taxable,  # Tax A taxable
-                tax_a_total,  # Tax A total
-                "0.00",  # Tax B taxable
-                "0.00",  # Tax B total
-                "0.00",  # Tax C taxable
-                "0.00",  # Tax C total
-                "0.00",  # Tax D taxable
-                "0.00",  # Tax D total
-                "0.00",  # Tax E taxable
-                "0.00",  # Tax E total
-                "0.00",  # Tax F taxable
-                "0.00",  # Tax F total
-                "0.00",  # Exempt amount
-                total_sales,  # Total sales
-                total_refunds,  # Total refunds
-                net_total,  # Total net
-                cash_total,  # Cash total
-                card_total,  # Card total
-                "0.00",  # Other payment total
+                "1",
+                "",
+                self._get_fiscal_device_id(),
+                str(totals["count"]),
+                self._format_amount(totals["amount_total"]),
+                self._format_amount(totals["iva_total"]),
+                self._format_amount(totals["iva_tax1"]),
+                self._format_amount(totals["iva_tax2"]),
+                self._format_amount(totals["iva_tax3"]),
+                self._format_amount(totals["amount_final_consumer"]),
+                self._format_amount(totals["iva_final_consumer"]),
+                self._format_amount(totals["amount_final_consumer"]),
+                self._format_amount(totals["amount_fiscal"]),
+                self._format_amount(totals["iva_fiscal"]),
+                self._format_amount(totals["amount_fiscal"]),
+                self._format_amount(totals["amount_credit_final"]),
+                self._format_amount(totals["iva_credit_final"]),
+                self._format_amount(totals["amount_credit_final"]),
+                self._format_amount(totals["amount_credit_fiscal"]),
+                self._format_amount(totals["iva_credit_fiscal"]),
+                self._format_amount(totals["amount_credit_fiscal"]),
+                self._format_count(0),
+                first_nkk,
+                last_nkk,
+                z_number,
+                self.PROGRAM_PROVIDER,
+                self.SOFTWARE_VERSION,
+                self.TIP_LEGAL,
             ]
 
-            return "||".join(fields)
-
+            return fields
         except Exception as e:
             logger.error(f"Error building Line Type 1: {e}")
             return None
 
-    def _build_line_type_2_records(self, transactions, z_report):
+    def _build_line_type_2_records(self, transactions):
         """
-        Build CSV Line Type 2 records (Transaction Records)
-
-        Args:
-            transactions: List of transaction dicts from printer
-            z_report: Z report dict for reference
-
-        Returns:
-            List of strings, each with 40 fields separated by ||
-
-        Format:
-            2||TransactionDate||TransactionTime||DocumentType||NKF||ZReportNumber||
-            CustomerName||CustomerCRIB||ItemCount||Subtotal||Discount||Surcharge||
-            ServiceCharge||Tip||TaxABase||TaxAAmount||TaxBBase||TaxBAmount||
-            TaxCBase||TaxCAmount||TaxDBase||TaxDAmount||TaxEBase||TaxEAmount||
-            TaxFBase||TaxFAmount||ExemptAmount||Total||
-            PaymentMethod1||Amount1||PaymentMethod2||Amount2||
-            PaymentMethod3||Amount3||PaymentMethod4||Amount4||
-            Reserved||Reserved||Reserved||Reserved
+        Build Line Type 2 record dicts (Transaction Records) per spec.
         """
-        line_type_2_records = []
+        records = []
 
         try:
-            # Get Z number from Z report
-            z_number = z_report.get('z_number', '0')
-
             for txn in transactions:
                 if not txn:
                     continue
 
-                # Use parsed transaction fields
-                doc_type = txn.get('doc_type', '0')
-
-                # Filter out non-sale transactions
-                # Valid document types: 0=sale, 1=refund, 2=void, 3=training
-                # Skip system events (20, 21, 32, 40) and other special types
-                try:
-                    doc_type_int = int(doc_type)
-                    if doc_type_int < 0 or doc_type_int > 3:
-                        logger.debug(f"Skipping non-sale transaction with doc_type={doc_type}")
-                        continue
-                except (ValueError, TypeError):
-                    logger.debug(f"Skipping transaction with invalid doc_type={doc_type}")
+                doc_type = self._map_doc_type(txn)
+                if doc_type is None:
                     continue
 
-                nkf = txn.get('nkf', '000000')
-                txn_date = txn.get('date', '')
-                txn_time = txn.get('time', '')
-                customer_name = txn.get('customer_name', '')
-                customer_crib = txn.get('customer_crib', '')
-                subtotal = txn.get('subtotal', '0.00')
-                discount = txn.get('discount', '0.00')
-                surcharge = txn.get('surcharge', '0.00')
-                service_charge = txn.get('service_charge', '0.00')
-                tip = txn.get('tip', '0.00')
-                tax_a_base = txn.get('tax_a_base', '0.00')
-                tax_a_amount = txn.get('tax_a_amount', '0.00')
-                tax_b_base = txn.get('tax_b_base', '0.00')
-                tax_b_amount = txn.get('tax_b_amount', '0.00')
-                total = txn.get('total', '0.00')
-                payment_method = txn.get('payment_method', 'Cash')
+                nkk_number = self._format_nkk(txn.get('nkf', ''))
+                txn_date = self._to_csv_yyyymmdd(txn.get('date', ''))
+                txn_time = self._to_csv_hhmmss(txn.get('time', ''))
+                customer_crib = self._format_taxpayer_id(
+                    txn.get('customer_crib', '') or self.DEFAULT_CLIENT_CRIB
+                )
+                nkf = self._format_nkf(txn.get('client_field', '') or "")
+                nkf_affected = self._format_nkf("")
 
-                # Convert date to DD-MM-YYYY format if needed
-                if txn_date and len(txn_date) == 8:
-                    txn_date = f"{txn_date[0:2]}-{txn_date[2:4]}-{txn_date[4:8]}"
+                amount_total = self._format_amount(txn.get('total'))
+                iva_total = self._format_amount(self._sum_numeric_fields(
+                    txn.get('tax_a_amount'),
+                    txn.get('tax_b_amount'),
+                ))
+                tax1_amount = self._format_amount(txn.get('tax_a_base'))
+                tax1_iva = self._format_amount(txn.get('tax_a_amount'))
+                tax2_amount = self._format_amount(txn.get('tax_b_base'))
+                tax2_iva = self._format_amount(txn.get('tax_b_amount'))
+                tax3_amount = self._format_amount(0)
+                tax3_iva = self._format_amount(0)
 
-                # Convert time to HH:MM:SS format if needed
-                if txn_time and len(txn_time) == 6:
-                    txn_time = f"{txn_time[0:2]}:{txn_time[2:4]}:{txn_time[4:6]}"
+                subtotal = self._safe_float(txn.get('subtotal'))
+                service_charge = self._safe_float(txn.get('service_charge'))
+                service_charge_pct = self._format_amount(
+                    (service_charge / subtotal * 100) if subtotal else 0
+                )
 
-                # Build Line Type 2 (40 fields)
+                discount_amount = self._format_amount(txn.get('discount'))
+                donation_amount = self._format_amount(0)
+                exempt_qty = self._format_count(0)
+
+                payment_amounts = self._payment_amounts(txn.get('payment_method', ''), amount_total)
+
                 fields = [
-                    "2",  # Line type
-                    txn_date or "01-01-2025",  # Transaction date
-                    txn_time or "00:00:00",  # Transaction time
-                    doc_type,  # Document type (0=sale, 1=refund)
-                    nkf,  # NKF
-                    z_number,  # Z report number
-                    customer_name,  # Customer name
-                    customer_crib,  # Customer CRIB
-                    "0",  # Item count (TODO: if available in fields)
-                    subtotal,  # Subtotal
-                    discount,  # Discount
-                    surcharge,  # Surcharge
-                    service_charge,  # Service charge
-                    tip,  # Tip
-                    tax_a_base,  # Tax A base
-                    tax_a_amount,  # Tax A amount
-                    tax_b_base,  # Tax B base
-                    tax_b_amount,  # Tax B amount
-                    "0.00",  # Tax C base
-                    "0.00",  # Tax C amount
-                    "0.00",  # Tax D base
-                    "0.00",  # Tax D amount
-                    "0.00",  # Tax E base
-                    "0.00",  # Tax E amount
-                    "0.00",  # Tax F base
-                    "0.00",  # Tax F amount
-                    "0.00",  # Exempt amount
-                    total,  # Total
-                    payment_method,  # Payment method 1
-                    total,  # Amount 1 (same as total for single payment)
-                    "",  # Payment method 2
-                    "",  # Amount 2
-                    "",  # Payment method 3
-                    "",  # Amount 3
-                    "",  # Payment method 4
-                    "",  # Amount 4
-                    "",  # Reserved
-                    "",  # Reserved
-                    "",  # Reserved
-                    "",  # Reserved
+                    "2",
+                    self._format_taxpayer_id(self.RETAILER_TAXPAYER_ID),
+                    self._format_code(self.BRANCH_CODE, 4),
+                    self._format_code(self.POS_NUMBER, 4),
+                    nkk_number,
+                    txn_date,
+                    txn_time,
+                    str(doc_type),
+                    self._format_code(0, 3),
+                    customer_crib,
+                    nkf,
+                    nkf_affected,
+                    amount_total,
+                    iva_total,
+                    self._format_code(0, 6),
+                    tax1_amount,
+                    tax1_iva,
+                    self._format_code(0, 6),
+                    tax2_amount,
+                    tax2_iva,
+                    self._format_code(0, 6),
+                    tax3_amount,
+                    tax3_iva,
+                    self._format_code(0, 6),
+                    service_charge_pct,
+                    self._format_amount(service_charge),
+                    discount_amount,
+                    donation_amount,
+                    self._format_code(exempt_qty, 6),
+                    *payment_amounts,
+                    self.TIP_LEGAL,
                 ]
 
-                line_type_2_records.append("||".join(fields))
+                records.append({
+                    "fields": fields,
+                    "doc_type": doc_type,
+                    "amount": self._safe_float(amount_total),
+                    "iva_total": self._safe_float(iva_total),
+                    "iva_tax1": self._safe_float(tax1_iva),
+                    "iva_tax2": self._safe_float(tax2_iva),
+                    "iva_tax3": self._safe_float(tax3_iva),
+                    "nkk": nkk_number,
+                })
 
-            return line_type_2_records
+            return records
 
         except Exception as e:
             logger.error(f"Error building Line Type 2 records: {e}")
             return []
 
-    def _build_line_type_3(self, year, month, sha1_hash):
+    def _build_line_type_3_fields(self, line_type_2_records):
         """
-        Build CSV Line Type 3 (Monthly Sales Book Header)
-
-        Args:
-            year: 4-digit year
-            month: 1-12
-            sha1_hash: 40-character SHA-1 hash string
-
-        Returns:
-            String with 16 fields separated by ||
-
-        Format:
-            3||Monthly sales book||BusinessName||TaxNumber||Year||Month||
-            FileCreationDate||FileCreationTime||SHA1Hash||
-            DeviceSerialNumber||FiscalMemorySerialNumber||
-            SoftwareName||SoftwareVersion||CertificationNumber||
-            Reserved||Reserved
+        Build Line Type 3 fields (Monthly Sales Book Header) per spec.
         """
         try:
-            now = datetime.now()
-            file_creation_date = now.strftime("%d-%m-%Y")
-            file_creation_time = now.strftime("%H:%M:%S")
-
+            totals = self._summarize_records(line_type_2_records)
             fields = [
-                "3",  # Line type
-                "Monthly sales book",  # Description
-                self.BUSINESS_NAME,
-                self.TAX_NUMBER,
-                str(year),
-                str(month),
-                file_creation_date,
-                file_creation_time,
-                sha1_hash,
-                self.DEVICE_SERIAL,
-                self.FISCAL_MEMORY_SERIAL,
-                self.SOFTWARE_NAME,
-                self.SOFTWARE_VERSION,
-                self.CERTIFICATION_NUMBER,
-                "",  # Reserved
-                "",  # Reserved
+                "3",
+                "",
+                str(totals["count"]),
+                self._format_amount(totals["amount_total"]),
+                self._format_amount(totals["iva_total"]),
+                self._format_amount(totals["iva_tax1"]),
+                self._format_amount(totals["iva_tax2"]),
+                self._format_amount(totals["iva_tax3"]),
+                self._format_amount(totals["amount_final_consumer"]),
+                self._format_amount(totals["iva_final_consumer"]),
+                self._format_amount(totals["amount_fiscal"]),
+                self._format_amount(totals["iva_fiscal"]),
+                self._format_amount(totals["amount_credit_final"]),
+                self._format_amount(totals["iva_credit_final"]),
+                self._format_amount(totals["amount_credit_fiscal"]),
+                self._format_amount(totals["iva_credit_fiscal"]),
             ]
-
-            return "||".join(fields)
-
+            return fields
         except Exception as e:
             logger.error(f"Error building Line Type 3: {e}")
             return None
 
-    def _calculate_sha1_hash(self, line_type_2_records):
+    def _calculate_sha1_hash(self, lines):
         """
-        Calculate SHA-1 hash from all Line Type 2 transaction records
-
-        Args:
-            line_type_2_records: List of Line Type 2 strings
-
-        Returns:
-            40-character hexadecimal SHA-1 hash string
+        Calculate SHA-1 hash from all lines in the file.
         """
         try:
-            # Concatenate all Line Type 2 records
-            all_transactions = ''.join(line_type_2_records)
-
-            # Calculate SHA-1 hash
-            sha1_hash = hashlib.sha1(all_transactions.encode('utf-8')).hexdigest()
-
+            content = "\r\n".join(lines)
+            sha1_hash = hashlib.sha1(content.encode('utf-8')).hexdigest()
             logger.debug(f"SHA-1 hash calculated: {sha1_hash}")
             return sha1_hash
-
         except Exception as e:
             logger.error(f"Error calculating SHA-1 hash: {e}")
-            return "0" * 40  # Return placeholder on error
+            return "0" * 40
 
-    def _ensure_directory_structure(self, year, month, day=None):
-        """
-        Create directory structure: BASE_DIRECTORY\\Year\\Month\\Day\\
-
-        Args:
-            year: 4-digit year
-            month: 1-12
-            day: Day of month (optional, for daily files)
-
-        Returns:
-            Full directory path created, or None on error
-        """
+    def _ensure_daily_directory(self, year, month, day):
         try:
-            month_name = self.MONTH_NAMES.get(month, str(month))
-
-            if day:
-                # Daily path: BASE_DIRECTORY\2025\December\20\
-                dir_path = os.path.join(self.BASE_DIRECTORY, str(year), month_name, f"{day:02d}")
-            else:
-                # Monthly path: BASE_DIRECTORY\2025\December\
-                dir_path = os.path.join(self.BASE_DIRECTORY, str(year), month_name)
-
-            # Create directories if they don't exist
+            dir_path = os.path.join(self.BASE_DIRECTORY, str(year), f"{month:02d}", f"{day:02d}")
             os.makedirs(dir_path, exist_ok=True)
-
             logger.info(f"Directory ensured: {dir_path}")
             return dir_path
+        except Exception as e:
+            logger.error(f"Error creating directory structure: {e}")
+            return None
 
+    def _ensure_monthly_directory(self, year, month):
+        try:
+            dir_path = os.path.join(self.BASE_DIRECTORY, str(year), f"{month:02d}")
+            os.makedirs(dir_path, exist_ok=True)
+            logger.info(f"Directory ensured: {dir_path}")
+            return dir_path
         except Exception as e:
             logger.error(f"Error creating directory structure: {e}")
             return None
@@ -676,3 +587,191 @@ class SalesBookGenerator:
         except Exception as e:
             logger.error(f"Error converting date: {e}")
             return printer_date
+
+    def _build_daily_filename(self, date_obj):
+        return self.DAILY_FILENAME_TEMPLATE.format(date=date_obj.strftime("%Y%m%d"))
+
+    def _build_monthly_filename(self, year, month):
+        return self.MONTHLY_FILENAME_TEMPLATE.format(year=year, month=month)
+
+    @staticmethod
+    def _join_fields(fields):
+        return "||".join(fields)
+
+    def _get_fiscal_device_id(self):
+        value = self.FISCAL_DEVICE_ID
+        if not value:
+            value = str(self.DEVICE_SERIAL or "")[-6:]
+        return self._format_code(value, 6)
+
+    @staticmethod
+    def _format_code(value, length):
+        cleaned = "".join(ch for ch in str(value) if ch.isdigit())
+        return cleaned.zfill(length) if cleaned else "0".zfill(length)
+
+    def _format_taxpayer_id(self, value):
+        cleaned = "".join(ch for ch in str(value) if ch.isdigit())
+        return cleaned.zfill(14) if cleaned else "0".zfill(14)
+
+    @staticmethod
+    def _format_count(value):
+        try:
+            return str(int(value))
+        except Exception:
+            return "0"
+
+    @staticmethod
+    def _format_amount(value):
+        try:
+            return f"{float(value):.2f}"
+        except Exception:
+            return "0.00"
+
+    @staticmethod
+    def _sum_numeric_fields(*values):
+        total = 0.0
+        for value in values:
+            try:
+                total += float(value)
+            except Exception:
+                continue
+        return total
+
+    @staticmethod
+    def _safe_float(value):
+        try:
+            return float(value)
+        except Exception:
+            return 0.0
+
+    def _map_doc_type(self, txn):
+        doc_type_raw = txn.get('doc_type')
+        try:
+            doc_type_raw = int(doc_type_raw)
+        except Exception:
+            doc_type_raw = 0
+
+        customer_crib = (txn.get('customer_crib') or "").strip()
+        is_fiscal_credit = customer_crib and customer_crib != self.DEFAULT_CLIENT_CRIB
+        is_refund = doc_type_raw == 1
+
+        if is_refund:
+            return 4 if is_fiscal_credit else 3
+        if doc_type_raw == 0:
+            return 2 if is_fiscal_credit else 1
+        return None
+
+    def _payment_amounts(self, payment_method, amount_total):
+        amounts = ["0.00"] * 10
+        amount_value = self._format_amount(amount_total)
+        value = (payment_method or "").strip().lower()
+
+        if "cash" in value:
+            amounts[0] = amount_value
+        elif "cheque" in value:
+            amounts[1] = amount_value
+        elif "credit" in value:
+            amounts[2] = amount_value
+        elif "debit" in value:
+            amounts[3] = amount_value
+        elif "note" in value:
+            amounts[4] = amount_value
+        elif "coupon" in value:
+            amounts[5] = amount_value
+        else:
+            amounts[6] = amount_value
+
+        return amounts
+
+    def _summarize_records(self, records):
+        totals = {
+            "count": len(records),
+            "amount_total": 0.0,
+            "iva_total": 0.0,
+            "iva_tax1": 0.0,
+            "iva_tax2": 0.0,
+            "iva_tax3": 0.0,
+            "amount_final_consumer": 0.0,
+            "iva_final_consumer": 0.0,
+            "amount_fiscal": 0.0,
+            "iva_fiscal": 0.0,
+            "amount_credit_final": 0.0,
+            "iva_credit_final": 0.0,
+            "amount_credit_fiscal": 0.0,
+            "iva_credit_fiscal": 0.0,
+        }
+
+        for record in records:
+            amount = record["amount"]
+            iva_total = record["iva_total"]
+            totals["amount_total"] += amount
+            totals["iva_total"] += iva_total
+            totals["iva_tax1"] += record["iva_tax1"]
+            totals["iva_tax2"] += record["iva_tax2"]
+            totals["iva_tax3"] += record["iva_tax3"]
+
+            if record["doc_type"] == 1:
+                totals["amount_final_consumer"] += amount
+                totals["iva_final_consumer"] += iva_total
+            elif record["doc_type"] == 2:
+                totals["amount_fiscal"] += amount
+                totals["iva_fiscal"] += iva_total
+            elif record["doc_type"] == 3:
+                totals["amount_credit_final"] += amount
+                totals["iva_credit_final"] += iva_total
+            elif record["doc_type"] == 4:
+                totals["amount_credit_fiscal"] += amount
+                totals["iva_credit_fiscal"] += iva_total
+
+        return totals
+
+    @staticmethod
+    def _find_nkk_bounds(records):
+        nkk_values = [record["nkk"] for record in records if record.get("nkk")]
+        if not nkk_values:
+            return "", ""
+        numeric_values = [n for n in nkk_values if n.isdigit()]
+        if numeric_values:
+            return min(numeric_values), max(numeric_values)
+        return min(nkk_values), max(nkk_values)
+
+    def _format_nkk(self, value):
+        cleaned = "".join(ch for ch in str(value) if ch.isdigit())
+        if cleaned:
+            return cleaned.zfill(16)
+        return ""
+
+    def _format_nkf(self, value):
+        text = str(value).strip()
+        if not text:
+            return ""
+        if text.isdigit():
+            return text.zfill(19)
+        return text
+
+    def _to_csv_yyyymmdd(self, printer_date):
+        try:
+            if len(printer_date) == 8:
+                return f"{printer_date[4:8]}{printer_date[2:4]}{printer_date[0:2]}"
+            if len(printer_date) == 6:
+                return f"20{printer_date[4:6]}{printer_date[2:4]}{printer_date[0:2]}"
+        except Exception:
+            pass
+        return printer_date
+
+    def _to_csv_hhmmss(self, printer_time):
+        try:
+            if len(printer_time) == 6:
+                return printer_time
+        except Exception:
+            pass
+        return printer_time
+
+    def _normalize_printer_date(self, printer_date):
+        if not printer_date:
+            return ""
+        if len(printer_date) == 8:
+            return self._to_csv_yyyymmdd(printer_date)
+        if len(printer_date) == 6:
+            return self._to_csv_yyyymmdd(printer_date)
+        return ""

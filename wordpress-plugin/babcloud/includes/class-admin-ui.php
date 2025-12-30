@@ -21,6 +21,7 @@ class BABCloud_Admin_UI {
         add_action('admin_menu', array(__CLASS__, 'add_admin_menu'));
         // Only add token management meta box - Voxel manages other fields
         add_action('add_meta_boxes', array(__CLASS__, 'add_token_meta_box'));
+        add_action('add_meta_boxes', array(__CLASS__, 'add_policy_meta_box'));
         add_action('save_post_printer', array(__CLASS__, 'save_token_meta'), 10, 2);
         add_filter('manage_printer_posts_columns', array(__CLASS__, 'custom_columns'));
         add_action('manage_printer_posts_custom_column', array(__CLASS__, 'custom_column_content'), 10, 2);
@@ -96,6 +97,20 @@ class BABCloud_Admin_UI {
             'printer',
             'side',
             'high'
+        );
+    }
+
+    /**
+     * Add cloud policy meta box
+     */
+    public static function add_policy_meta_box() {
+        add_meta_box(
+            'printer_cloud_policy',
+            __('BABCloud Cloud Policy', 'babcloud'),
+            array(__CLASS__, 'printer_policy_metabox'),
+            'printer',
+            'side',
+            'default'
         );
     }
 
@@ -216,6 +231,32 @@ class BABCloud_Admin_UI {
     }
 
     /**
+     * Cloud policy meta box
+     */
+    public static function printer_policy_metabox($post) {
+        $cloud_only = get_post_meta($post->ID, 'cloud_only', true);
+        $cloud_grace_hours = get_post_meta($post->ID, 'cloud_grace_hours', true);
+        if ($cloud_grace_hours === '' || $cloud_grace_hours === null) {
+            $cloud_grace_hours = 72;
+        }
+        ?>
+        <div style="padding: 10px;">
+            <p>
+                <label>
+                    <input type="checkbox" name="babcloud_cloud_only" value="1" <?php checked($cloud_only, '1'); ?> />
+                    <?php _e('Enforce cloud-only commands', 'babcloud'); ?>
+                </label>
+            </p>
+            <p>
+                <label for="babcloud_cloud_grace_hours"><strong><?php _e('Grace period (hours)', 'babcloud'); ?></strong></label><br>
+                <input type="number" min="0" max="168" id="babcloud_cloud_grace_hours" name="babcloud_cloud_grace_hours" value="<?php echo esc_attr($cloud_grace_hours); ?>" style="width: 100%;" />
+                <small><?php _e('Allow local fallback when portal is unreachable.', 'babcloud'); ?></small>
+            </p>
+        </div>
+        <?php
+    }
+
+    /**
      * Printer status meta box
      */
     public static function printer_status_metabox($post) {
@@ -301,6 +342,20 @@ class BABCloud_Admin_UI {
             if ($token) {
                 set_transient('babcloud_new_token_' . $post_id, $token, 300); // 5 minute expiry
             }
+        }
+
+        if (isset($_POST['babcloud_cloud_only'])) {
+            update_post_meta($post_id, 'cloud_only', '1');
+        } else {
+            update_post_meta($post_id, 'cloud_only', '0');
+        }
+
+        if (isset($_POST['babcloud_cloud_grace_hours'])) {
+            $grace = intval($_POST['babcloud_cloud_grace_hours']);
+            if ($grace < 0) {
+                $grace = 0;
+            }
+            update_post_meta($post_id, 'cloud_grace_hours', strval($grace));
         }
     }
 

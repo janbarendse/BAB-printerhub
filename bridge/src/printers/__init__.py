@@ -30,6 +30,7 @@ def create_printer(config):
     printer_config = config['printer'][printer_name].copy()
     printer_config['client'] = config.get('client', {})
     printer_config['miscellaneous'] = config.get('miscellaneous', {})
+    printer_config['system'] = config.get('system', {})
 
     if printer_name == 'cts310ii':
         from .cts310ii.cts310ii_driver import CTS310iiDriver

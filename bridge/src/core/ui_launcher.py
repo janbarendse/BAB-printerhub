@@ -26,7 +26,8 @@ def _is_compiled() -> bool:
 def _resolve_base_dir() -> str:
     if _is_compiled():
         return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # core -> src -> bridge
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def _find_ui_python(base_dir: str) -> Optional[str]:

@@ -10,6 +10,8 @@ import os
 import sys
 import ctypes
 
+from PySide6 import QtCore, QtGui
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,8 +69,8 @@ class FiscalToolsWindow:
 
         self.window = QMainWindow()
         self.window.setWindowTitle("BAB Cloud - Fiscal Tools")
-        self.window.resize(940, 820)
-        self.window.setMinimumSize(820, 700)
+        self.window.resize(920, 700)
+        self.window.setMinimumSize(800, 600)
 
         base_dir = _resolve_base_dir()
         icon_path = os.path.join(base_dir, "logo.png")
@@ -207,6 +209,17 @@ class FiscalToolsWindow:
 
         self._apply_styles()
         self._init_dates()
+        QtCore.QTimer.singleShot(0, self._finalize_layout)
+
+    def _finalize_layout(self):
+        self.window.adjustSize()
+        screen = QtGui.QGuiApplication.primaryScreen()
+        if screen:
+            max_height = max(480, screen.availableGeometry().height() - 40)
+            target_height = min(self.window.sizeHint().height(), max_height)
+            self.window.setMaximumHeight(target_height)
+            if self.window.height() > target_height:
+                self.window.resize(self.window.width(), target_height)
 
     def _apply_styles(self):
         self.window.setStyleSheet(

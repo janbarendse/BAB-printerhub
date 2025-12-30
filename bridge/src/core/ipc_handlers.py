@@ -26,15 +26,51 @@ class CoreCommandHandler:
         self.printer = printer
         self.software = software
         self._lock = threading.Lock()
-
-        self._is_cloud_mode = (
-            config.get("mode") == "cloud"
-            and config.get("babportal", {}).get("enabled", False)
-        )
         self._wp_sender = None
 
+    def _cloud_mode_enabled(self) -> bool:
+        return (
+            self.config.get("mode") == "cloud"
+            and self.config.get("babportal", {}).get("enabled", False)
+        )
+
+    def _cloud_policy_enabled(self) -> bool:
+        return bool(self.config.get("babportal", {}).get("cloud_only", False))
+
+    def _demo_mode(self) -> bool:
+        return bool(self.config.get("system", {}).get("demo_mode", False))
+
+    def _cloud_grace_hours(self) -> int:
+        try:
+            return int(self.config.get("babportal", {}).get("cloud_grace_hours", 72))
+        except (TypeError, ValueError):
+            return 72
+
+    def _within_cloud_grace(self) -> bool:
+        last_check = self.config.get("babportal", {}).get("last_license_check")
+        if not last_check:
+            return self._cloud_grace_hours() > 0
+        try:
+            last_dt = datetime.datetime.fromisoformat(last_check)
+        except Exception:
+            return False
+        return (datetime.datetime.now() - last_dt) <= datetime.timedelta(hours=self._cloud_grace_hours())
+
+    def _should_use_cloud(self) -> bool:
+        if self._demo_mode():
+            return False
+        return self._cloud_mode_enabled() or self._cloud_policy_enabled()
+
+    def _should_fallback_to_local(self, result: Dict[str, Any]) -> bool:
+        if not self._cloud_policy_enabled():
+            return False
+        if not self._within_cloud_grace():
+            return False
+        error_code = result.get("error_code")
+        return error_code in ("connection_error", "config_missing")
+
     def _ensure_wp_sender(self) -> None:
-        if not self._is_cloud_mode or self._wp_sender:
+        if not self._should_use_cloud() or self._wp_sender:
             return
         try:
             wp_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "wordpress")
@@ -46,7 +82,7 @@ class CoreCommandHandler:
             logger.info("IPC: Cloud mode enabled, WordPress sender initialized")
         except Exception as exc:
             logger.error("IPC: Failed to init WordPress sender: %s", exc)
-            self._is_cloud_mode = False
+            self._wp_sender = None
 
     def handle(self, action: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Main dispatcher for IPC actions."""
@@ -55,6 +91,9 @@ class CoreCommandHandler:
 
         if action.startswith("fiscal."):
             return self._handle_fiscal(action, payload)
+
+        if action.startswith("salesbook."):
+            return self._handle_salesbook(action, payload)
 
         return {"success": False, "error": f"Unknown action: {action}"}
 
@@ -94,10 +133,51 @@ class CoreCommandHandler:
 
         return {"success": False, "error": f"Unknown fiscal action: {action}"}
 
+    def _handle_salesbook(self, action: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        with self._lock:
+            try:
+                if action == "salesbook.export_daily":
+                    return self._export_salesbook_daily(payload)
+            except Exception as exc:
+                logger.error("IPC salesbook action failed: %s", exc, exc_info=True)
+                return {"success": False, "error": str(exc)}
+
+        return {"success": False, "error": f"Unknown salesbook action: {action}"}
+
+    def _export_salesbook_daily(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        date_str = payload.get("date")
+        if not date_str:
+            return {"success": False, "error": "Date is required (YYYY-MM-DD)"}
+
+        from salesbook import SalesBookGenerator
+        from src.core.config_manager import get_config_path
+
+        logger.info("IPC: Salesbook export requested for %s", date_str)
+        generator = SalesBookGenerator(self.printer, config_path=get_config_path())
+        file_path = generator.generate_daily_csv(date_str)
+
+        if not file_path:
+            return {"success": False, "error": f"No salesbook data for {date_str}"}
+
+        return {
+            "success": True,
+            "file": file_path,
+            "message": f"Salesbook exported for {date_str}",
+        }
+
     def _print_x_report(self) -> Dict[str, Any]:
         logger.info("IPC: X-Report requested")
-        if self._is_cloud_mode and self._wp_sender:
-            return self._wp_sender.print_x_report()
+        if self._should_use_cloud():
+            self._ensure_wp_sender()
+            if self._wp_sender:
+                cloud_result = self._wp_sender.print_x_report()
+                if cloud_result.get("success"):
+                    return cloud_result
+                if not self._should_fallback_to_local(cloud_result):
+                    return cloud_result
+                logger.warning("IPC: Cloud-only enforced, portal unreachable; using grace fallback")
+            elif self._cloud_policy_enabled() and not self._within_cloud_grace():
+                return {"success": False, "error": "Cloud-only license requires portal connection"}
 
         response = self.printer.print_x_report()
         if response.get("success"):
@@ -106,8 +186,17 @@ class CoreCommandHandler:
 
     def _print_z_report(self) -> Dict[str, Any]:
         logger.info("IPC: Z-Report requested")
-        if self._is_cloud_mode and self._wp_sender:
-            return self._wp_sender.print_z_report()
+        if self._should_use_cloud():
+            self._ensure_wp_sender()
+            if self._wp_sender:
+                cloud_result = self._wp_sender.print_z_report()
+                if cloud_result.get("success"):
+                    return cloud_result
+                if not self._should_fallback_to_local(cloud_result):
+                    return cloud_result
+                logger.warning("IPC: Cloud-only enforced, portal unreachable; using grace fallback")
+            elif self._cloud_policy_enabled() and not self._within_cloud_grace():
+                return {"success": False, "error": "Cloud-only license requires portal connection"}
 
         now = datetime.datetime.now()
         self.config.setdefault("fiscal_tools", {})["last_z_report_print_time"] = now.isoformat()
@@ -131,8 +220,17 @@ class CoreCommandHandler:
             return {"success": False, "error": "Start and end dates are required"}
 
         logger.info("IPC: Z-Report by date %s -> %s", start_date, end_date)
-        if self._is_cloud_mode and self._wp_sender:
-            return self._wp_sender.print_z_report_by_date(start_date, end_date)
+        if self._should_use_cloud():
+            self._ensure_wp_sender()
+            if self._wp_sender:
+                cloud_result = self._wp_sender.print_z_report_by_date(start_date, end_date)
+                if cloud_result.get("success"):
+                    return cloud_result
+                if not self._should_fallback_to_local(cloud_result):
+                    return cloud_result
+                logger.warning("IPC: Cloud-only enforced, portal unreachable; using grace fallback")
+            elif self._cloud_policy_enabled() and not self._within_cloud_grace():
+                return {"success": False, "error": "Cloud-only license requires portal connection"}
 
         start_date_obj = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
         end_date_obj = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
@@ -164,8 +262,17 @@ class CoreCommandHandler:
             return {"success": False, "error": "Start number must be less than or equal to end number"}
 
         logger.info("IPC: Z-Report range %s -> %s", start_num, end_num)
-        if self._is_cloud_mode and self._wp_sender:
-            return self._wp_sender.print_z_report_range(start_num, end_num)
+        if self._should_use_cloud():
+            self._ensure_wp_sender()
+            if self._wp_sender:
+                cloud_result = self._wp_sender.print_z_report_range(start_num, end_num)
+                if cloud_result.get("success"):
+                    return cloud_result
+                if not self._should_fallback_to_local(cloud_result):
+                    return cloud_result
+                logger.warning("IPC: Cloud-only enforced, portal unreachable; using grace fallback")
+            elif self._cloud_policy_enabled() and not self._within_cloud_grace():
+                return {"success": False, "error": "Cloud-only license requires portal connection"}
 
         response = self.printer.print_z_report_by_number_range(start_num, end_num)
         if response.get("success"):
@@ -178,8 +285,17 @@ class CoreCommandHandler:
             return {"success": False, "error": "Document number is required"}
 
         logger.info("IPC: Reprint document %s", document_number)
-        if self._is_cloud_mode and self._wp_sender:
-            return self._wp_sender.print_check(document_number)
+        if self._should_use_cloud():
+            self._ensure_wp_sender()
+            if self._wp_sender:
+                cloud_result = self._wp_sender.print_check(document_number)
+                if cloud_result.get("success"):
+                    return cloud_result
+                if not self._should_fallback_to_local(cloud_result):
+                    return cloud_result
+                logger.warning("IPC: Cloud-only enforced, portal unreachable; using grace fallback")
+            elif self._cloud_policy_enabled() and not self._within_cloud_grace():
+                return {"success": False, "error": "Cloud-only license requires portal connection"}
 
         response = self.printer.reprint_document(str(document_number))
         if response.get("success"):
@@ -189,8 +305,17 @@ class CoreCommandHandler:
     def _print_no_sale(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         reason = payload.get("reason", "")
         logger.info("IPC: No Sale requested")
-        if self._is_cloud_mode and self._wp_sender:
-            return self._wp_sender.print_no_sale(reason)
+        if self._should_use_cloud():
+            self._ensure_wp_sender()
+            if self._wp_sender:
+                cloud_result = self._wp_sender.print_no_sale(reason)
+                if cloud_result.get("success"):
+                    return cloud_result
+                if not self._should_fallback_to_local(cloud_result):
+                    return cloud_result
+                logger.warning("IPC: Cloud-only enforced, portal unreachable; using grace fallback")
+            elif self._cloud_policy_enabled() and not self._within_cloud_grace():
+                return {"success": False, "error": "Cloud-only license requires portal connection"}
 
         response = self.printer.print_no_sale(reason)
         if response.get("success"):

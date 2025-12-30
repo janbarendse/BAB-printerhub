@@ -52,16 +52,19 @@ class WordPressCommandSender:
         """
         if not all([self.wordpress_url, self.device_id, self.device_token]):
             logger.error(f"Portal API not configured - URL: {self.wordpress_url}, Device ID: {self.device_id}, Token present: {bool(self.device_token)}")
-            return {"success": False, "error": "Portal API not configured"}
+            return {"success": False, "error": "Portal API not configured", "error_code": "config_missing"}
 
-        url = f"{self.wordpress_url}/wp-json/babcloud/v1/printer/{self.device_id}/trigger/{command_type}"
+        url = f"{self.wordpress_url}/wp-json/babcloud/v1/printer/{self.device_id}/commands"
 
         headers = {
             'X-Device-Token': self.device_token,
             'Content-Type': 'application/json'
         }
 
-        payload = params or {}
+        payload = {
+            "command_type": command_type,
+            "params": params or {},
+        }
 
         try:
             logger.info(f"Sending command to Portal: {command_type}")
@@ -89,13 +92,16 @@ class WordPressCommandSender:
                     logger.error(f"  Response text: {response.text}")
                 return {
                     "success": False,
-                    "error": f"Failed to queue command: {response.status_code}"
+                    "error": f"Failed to queue command: {response.status_code}",
+                    "error_code": "http_error",
+                    "status_code": response.status_code,
                 }
         except Exception as e:
             logger.error(f"Exception sending command to WordPress: {e}")
             return {
                 "success": False,
-                "error": f"Failed to connect to Portal: {str(e)}"
+                "error": f"Failed to connect to Portal: {str(e)}",
+                "error_code": "connection_error",
             }
 
     def print_x_report(self):

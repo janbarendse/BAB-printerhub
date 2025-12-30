@@ -39,6 +39,20 @@ class BABCloud_REST_API {
             ),
         ));
 
+        // 1b. Queue a command from the device (cloud-only routing)
+        register_rest_route(self::NAMESPACE, '/printer/(?P<device_id>[a-zA-Z0-9_-]+)/commands', array(
+            'methods' => 'POST',
+            'callback' => array(__CLASS__, 'queue_command'),
+            'permission_callback' => array('BABCloud_Auth', 'check_device_permission'),
+            'args' => array(
+                'device_id' => array(
+                    'required' => true,
+                    'type' => 'string',
+                    'sanitize_callback' => 'sanitize_text_field',
+                ),
+            ),
+        ));
+
         // 2. Report command completion
         register_rest_route(self::NAMESPACE, '/printer/(?P<device_id>[a-zA-Z0-9_-]+)/commands/complete', array(
             'methods' => 'POST',
@@ -290,8 +304,11 @@ class BABCloud_REST_API {
         $license_expiry = get_post_meta($printer->ID, 'license_expiry', true);
         $license_valid = true;
         $days_remaining = null;
+        $subscription_active = ($printer->post_status === 'publish');
 
-        if ($license_expiry) {
+        if (!$subscription_active) {
+            $license_valid = false;
+        } elseif ($license_expiry) {
             $expiry_date = strtotime($license_expiry);
             $now = current_time('timestamp');
 
@@ -304,11 +321,20 @@ class BABCloud_REST_API {
 
         update_post_meta($printer->ID, 'license_valid', $license_valid ? '1' : '0');
 
+        $cloud_only = get_post_meta($printer->ID, 'cloud_only', true);
+        $cloud_grace_hours = get_post_meta($printer->ID, 'cloud_grace_hours', true);
+        if ($cloud_grace_hours === '' || $cloud_grace_hours === null) {
+            $cloud_grace_hours = 72;
+        }
+
         return new WP_REST_Response(array(
             'acknowledged' => true,
             'license_valid' => $license_valid,
             'license_expiry' => $license_expiry,
             'days_remaining' => $days_remaining,
+            'subscription_active' => $subscription_active,
+            'cloud_only' => $cloud_only === '1',
+            'cloud_grace_hours' => intval($cloud_grace_hours),
         ), 200);
     }
 
@@ -321,8 +347,16 @@ class BABCloud_REST_API {
         $license_expiry = get_post_meta($printer->ID, 'license_expiry', true);
         $license_valid = true;
         $days_remaining = null;
+        $subscription_active = ($printer->post_status === 'publish');
+        $cloud_only = get_post_meta($printer->ID, 'cloud_only', true);
+        $cloud_grace_hours = get_post_meta($printer->ID, 'cloud_grace_hours', true);
+        if ($cloud_grace_hours === '' || $cloud_grace_hours === null) {
+            $cloud_grace_hours = 72;
+        }
 
-        if ($license_expiry) {
+        if (!$subscription_active) {
+            $license_valid = false;
+        } elseif ($license_expiry) {
             $expiry_date = strtotime($license_expiry);
             $now = current_time('timestamp');
 
@@ -337,6 +371,9 @@ class BABCloud_REST_API {
             'valid' => $license_valid,
             'expiry' => $license_expiry,
             'days_remaining' => $days_remaining,
+            'subscription_active' => $subscription_active,
+            'cloud_only' => $cloud_only === '1',
+            'cloud_grace_hours' => intval($cloud_grace_hours),
         ), 200);
     }
 
@@ -433,6 +470,41 @@ class BABCloud_REST_API {
             'command_id' => $command_id,
             'message' => __('Command queued successfully', 'babcloud'),
         );
+    }
+
+    /**
+     * Queue a command from a device (cloud-only mode)
+     */
+    public static function queue_command($request) {
+        $printer = $request->get_param('_printer_object');
+
+        $body = $request->get_json_params();
+        if (empty($body)) {
+            $body = $request->get_body_params();
+        }
+
+        $command_type = isset($body['command_type']) ? sanitize_text_field($body['command_type']) : '';
+        $params = array();
+        if (isset($body['params']) && is_array($body['params'])) {
+            $params = $body['params'];
+        }
+
+        $allowed = array('zreport', 'xreport', 'print_check', 'zreport_range', 'zreport_date', 'no_sale');
+        if (empty($command_type) || !in_array($command_type, $allowed, true)) {
+            return new WP_Error(
+                'invalid_command',
+                __('Invalid or missing command_type', 'babcloud'),
+                array('status' => 400)
+            );
+        }
+
+        $result = self::create_command($printer, $command_type, $params);
+
+        if (is_wp_error($result)) {
+            return $result;
+        }
+
+        return new WP_REST_Response($result, 200);
     }
 
     /**

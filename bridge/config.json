@@ -1,8 +1,8 @@
 {
   "software": {
-    "active": "tcpos",
+    "active": "odoo",
     "odoo": {
-      "enabled": false,
+      "enabled": true,
       "url": "https://makemyday-printerdev.odoo.com/odoo/point-of-sale",
       "credentials_file": "odoo_credentials_encrypted.json",
       "polling_interval_seconds": 3,
@@ -22,7 +22,7 @@
       }
     },
     "tcpos": {
-      "enabled": true,
+      "enabled": false,
       "transactions_folder": "D:\\TCpos\\FrontEnd\\Transactions",
       "last_order_id": 0
     },
@@ -86,7 +86,10 @@
     "api_version": "v1",
     "wordpress_username": "Chichi",
     "wordpress_app_password": "Vegm a5Vv oGjX Eobd vvZU A9HJ",
-    "encrypted_app_password": false
+    "encrypted_app_password": false,
+    "last_license_check": "2025-12-29T20:40:43.548727",
+    "cloud_only": false,
+    "cloud_grace_hours": 72
   },
   "fiscal_tools": {
     "Z_report_from": "2025-12-01",

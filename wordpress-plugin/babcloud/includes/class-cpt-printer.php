@@ -32,6 +32,8 @@ class BABCloud_CPT_Printer {
             'license_key',
             'license_expiry',
             'license_valid',
+            'cloud_only',
+            'cloud_grace_hours',
             'last_seen',
             'hub_version',
             'printer_model',

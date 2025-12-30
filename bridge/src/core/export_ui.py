@@ -10,8 +10,69 @@ import logging
 import os
 import sys
 import ctypes
+import time
 
-logger = logging.getLogger(__name__)
+from PySide6 import QtCore
+
+from src.logger_module import logger as app_logger
+
+logger = app_logger
+
+
+def _install_excepthook():
+    def _hook(exc_type, exc_value, exc_traceback):
+        logger.error("Export modal crash: %s", exc_value, exc_info=(exc_type, exc_value, exc_traceback))
+    sys.excepthook = _hook
+
+    def _qt_handler(msg_type, context, message):
+        logger.error("Qt message: %s", message)
+    try:
+        QtCore.qInstallMessageHandler(_qt_handler)
+    except Exception:
+        pass
+
+
+class ExportWorker(QtCore.QObject):
+    progress = QtCore.Signal(int, int, str, float)
+    finished = QtCore.Signal(list, list, float)
+
+    def __init__(self, dates):
+        super().__init__()
+        self._dates = dates
+
+    @QtCore.Slot()
+    def run(self):
+        from .ipc_client import IpcClient
+
+        client = IpcClient()
+        exported_files = []
+        failed_dates = []
+        start = time.perf_counter()
+        try:
+            for index, date_str in enumerate(self._dates, start=1):
+                result = client.request("salesbook.export_daily", {"date": date_str})
+                if result.get("success"):
+                    file_path = result.get("file") or result.get("summary_file")
+                    if file_path:
+                        exported_files.append({
+                            "date": date_str,
+                            "file": file_path,
+                            "summary": result.get("summary_file", ""),
+                            "details": result.get("details_file"),
+                        })
+                else:
+                    error_text = result.get("error", "")
+                    if "No transactions" not in error_text and "No salesbook data" not in error_text:
+                        failed_dates.append(date_str)
+
+                elapsed = time.perf_counter() - start
+                self.progress.emit(index, len(self._dates), date_str, elapsed)
+        except Exception as exc:
+            logger.error("Export worker crashed: %s", exc, exc_info=True)
+            failed_dates.extend(self._dates)
+
+        total_elapsed = time.perf_counter() - start
+        self.finished.emit(exported_files, failed_dates, total_elapsed)
 
 
 def _show_error_messagebox(title, message):
@@ -41,8 +102,9 @@ def _resolve_base_dir() -> str:
     return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-class ExportWindow:
+class ExportWindow(QtCore.QObject):
     def __init__(self, config):
+        super().__init__()
         from PySide6.QtCore import Qt, QDate
         from PySide6.QtGui import QIcon
         from PySide6.QtWidgets import (
@@ -59,16 +121,21 @@ class ExportWindow:
             QFrame,
             QGroupBox,
             QScrollArea,
+            QProgressBar,
         )
+
+        from .ipc_client import IpcClient
 
         self._Qt = Qt
         self._QDate = QDate
         self.config = config
+        self.client = IpcClient()
+        _install_excepthook()
 
         self.window = QMainWindow()
         self.window.setWindowTitle("BAB Cloud - Salesbook Export")
-        self.window.resize(920, 760)
-        self.window.setMinimumSize(820, 680)
+        self.window.resize(920, 720)
+        self.window.setMinimumSize(820, 640)
 
         base_dir = _resolve_base_dir()
         icon_path = os.path.join(base_dir, "logo.png")
@@ -112,6 +179,7 @@ class ExportWindow:
         open_folder_btn = QPushButton("Open Export Folder")
         open_folder_btn.setObjectName("darkButtonWide")
         open_folder_btn.clicked.connect(self.open_export_folder)
+        self.open_folder_btn = open_folder_btn
         header_layout.addWidget(open_folder_btn)
 
         root_layout.addWidget(header)
@@ -149,6 +217,7 @@ class ExportWindow:
         date_btn = QPushButton("Export Date")
         date_btn.setObjectName("primaryButtonWide")
         date_btn.clicked.connect(self.export_by_date)
+        self.date_btn = date_btn
 
         date_layout.addWidget(date_title)
         date_layout.addWidget(date_desc)
@@ -190,6 +259,7 @@ class ExportWindow:
         month_btn = QPushButton("Export Month")
         month_btn.setObjectName("primaryButtonWide")
         month_btn.clicked.connect(self.export_by_month)
+        self.month_btn = month_btn
 
         month_layout.addWidget(month_title)
         month_layout.addWidget(month_desc)
@@ -232,6 +302,7 @@ class ExportWindow:
         range_btn = QPushButton("Export Date Range")
         range_btn.setObjectName("primaryButtonWide")
         range_btn.clicked.connect(self.export_by_date_range)
+        self.range_btn = range_btn
 
         range_layout.addWidget(range_title)
         range_layout.addWidget(range_desc)
@@ -274,6 +345,12 @@ class ExportWindow:
         self.status_label.setObjectName("status")
         footer_layout.addWidget(self.status_label, 1)
 
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setObjectName("progress")
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setTextVisible(True)
+        footer_layout.addWidget(self.progress_bar, 0)
+
         close_btn = QPushButton("Close")
         close_btn.setObjectName("darkButtonWide")
         close_btn.clicked.connect(self.window.close)
@@ -282,6 +359,14 @@ class ExportWindow:
         root_layout.addWidget(footer)
 
         self._apply_styles()
+        self._export_thread = None
+        self._export_worker = None
+        self._avg_day_seconds = None
+        QtCore.QTimer.singleShot(0, self._finalize_layout)
+
+    def _finalize_layout(self):
+        self.window.adjustSize()
+        self.window.setMaximumHeight(self.window.sizeHint().height())
 
     def _apply_styles(self):
         self.window.setStyleSheet(
@@ -368,6 +453,20 @@ class ExportWindow:
             QLabel#status {
                 color: #6b7280;
             }
+            QProgressBar#progress {
+                min-width: 180px;
+                max-width: 240px;
+                height: 18px;
+                border: 1px solid #d1d5db;
+                border-radius: 8px;
+                background: #ffffff;
+                text-align: center;
+                color: #374151;
+            }
+            QProgressBar#progress::chunk {
+                background-color: #b91c1c;
+                border-radius: 8px;
+            }
             QWidget#resultItem {
                 background: #f9fafb;
                 border: 1px solid #e5e7eb;
@@ -391,6 +490,90 @@ class ExportWindow:
         else:
             self.status_label.setStyleSheet("color: #6b7280;")
 
+    def _set_export_controls_enabled(self, enabled):
+        self.date_btn.setEnabled(enabled)
+        self.month_btn.setEnabled(enabled)
+        self.range_btn.setEnabled(enabled)
+        self.open_folder_btn.setEnabled(enabled)
+
+    def _start_worker(self, dates, label):
+        if self._export_thread and self._export_thread.isRunning():
+            self._set_status("Export already in progress...", is_error=True)
+            return
+
+        self._set_export_controls_enabled(False)
+        self.progress_bar.setVisible(True)
+
+        total = len(dates)
+        if total > 1:
+            self.progress_bar.setRange(0, total)
+            self.progress_bar.setValue(0)
+        else:
+            self.progress_bar.setRange(0, 0)
+
+        if total == 1 and self._avg_day_seconds:
+            self._set_status(f"{label} ETA ~{self._format_eta(self._avg_day_seconds)}")
+        else:
+            self._set_status(label)
+
+        self._export_thread = QtCore.QThread()
+        self._export_worker = ExportWorker(dates)
+        self._export_worker.moveToThread(self._export_thread)
+        self._export_thread.started.connect(self._export_worker.run)
+        self._export_worker.progress.connect(self._on_export_progress, QtCore.Qt.QueuedConnection)
+        self._export_worker.finished.connect(self._on_export_finished, QtCore.Qt.QueuedConnection)
+        self._export_worker.finished.connect(self._export_thread.quit)
+        self._export_worker.finished.connect(self._export_worker.deleteLater)
+        self._export_thread.finished.connect(self._cleanup_export_thread)
+        self._export_thread.finished.connect(self._export_thread.deleteLater)
+        self._export_thread.start()
+
+    @QtCore.Slot(int, int, str, float)
+    def _on_export_progress(self, completed, total, date_str, elapsed):
+        if total > 1:
+            self.progress_bar.setRange(0, total)
+            self.progress_bar.setValue(completed)
+            eta = ""
+            if completed > 0:
+                avg = elapsed / completed
+                remaining = max(0, total - completed)
+                eta = f" ETA ~{self._format_eta(avg * remaining)}"
+            self._set_status(f"Exporting {completed}/{total} (last {date_str}){eta}")
+
+    @QtCore.Slot(list, list, float)
+    def _on_export_finished(self, exported_files, failed_dates, elapsed):
+        self._finish_export_ui(exported_files, failed_dates, elapsed)
+
+    def _finish_export_ui(self, exported_files, failed_dates, elapsed):
+        try:
+            total = max(len(exported_files) + len(failed_dates), 1)
+            self._avg_day_seconds = elapsed / total
+            self.progress_bar.setRange(0, 1)
+            self.progress_bar.setValue(1)
+            self.progress_bar.setVisible(False)
+            self._set_export_controls_enabled(True)
+
+            if exported_files:
+                self._show_results(exported_files)
+                self._set_status(f"Exported {len(exported_files)} day(s)")
+            else:
+                self._set_status("No transactions found for the selected range", is_error=True)
+
+            if failed_dates:
+                logger.warning("Export failed for dates: %s", ", ".join(failed_dates))
+        except Exception as exc:
+            logger.error("Export completion failed: %s", exc, exc_info=True)
+            self._set_status(str(exc), is_error=True)
+
+    def _cleanup_export_thread(self):
+        self._export_thread = None
+        self._export_worker = None
+
+    @staticmethod
+    def _format_eta(seconds):
+        seconds = max(0, int(seconds))
+        minutes, seconds = divmod(seconds, 60)
+        return f"{minutes:02d}:{seconds:02d}"
     def _clear_results(self):
         while self.results_layout.count():
             item = self.results_layout.takeAt(0)
@@ -417,80 +600,47 @@ class ExportWindow:
 
             date_label = QLabel(file_info.get("date", ""))
             date_label.setObjectName("resultDate")
-            summary_label = QLabel(f"Summary: {file_info.get('summary', '')}")
-            summary_label.setObjectName("resultFile")
             layout.addWidget(date_label)
-            layout.addWidget(summary_label)
-            details = file_info.get("details")
-            if details:
-                details_label = QLabel(f"Details: {details}")
-                details_label.setObjectName("resultFile")
-                layout.addWidget(details_label)
+
+            file_path = file_info.get("file")
+            if file_path:
+                file_label = QLabel(f"File: {file_path}")
+                file_label.setObjectName("resultFile")
+                layout.addWidget(file_label)
+            else:
+                summary_label = QLabel(f"Summary: {file_info.get('summary', '')}")
+                summary_label.setObjectName("resultFile")
+                layout.addWidget(summary_label)
+                details = file_info.get("details")
+                if details:
+                    details_label = QLabel(f"Details: {details}")
+                    details_label.setObjectName("resultFile")
+                    layout.addWidget(details_label)
 
             self.results_layout.addWidget(card)
 
     def export_by_date(self):
         date_str = self.single_date.date().toString("yyyy-MM-dd")
-        self._set_status(f"Exporting salesbook for {date_str}...")
-        try:
-            from .salesbook_exporter import SalesbookExporter
-
-            exporter = SalesbookExporter(self.config)
-            result = exporter.export_daily_salesbook(datetime.datetime.strptime(date_str, "%Y-%m-%d").date())
-            if result.get("success"):
-                self._set_status(result.get("message", f"Exported {date_str}"))
-                files = []
-                if result.get("summary_file"):
-                    files.append({
-                        "date": date_str,
-                        "summary": result.get("summary_file"),
-                        "details": result.get("details_file"),
-                    })
-                self._show_results(files)
-            else:
-                self._set_status(result.get("error", "Export failed"), is_error=True)
-        except Exception as exc:
-            logger.error("Export by date failed: %s", exc)
-            self._set_status(str(exc), is_error=True)
+        self._start_worker([date_str], f"Exporting salesbook for {date_str}...")
 
     def export_by_month(self):
         year = int(self.year_select.value())
         month = int(self.month_select.currentData())
-        self._set_status(f"Exporting salesbook for {year}-{month:02d}...")
+        today = datetime.date.today()
+        if (year, month) > (today.year, today.month):
+            self._set_status("Selected month is in the future", is_error=True)
+            return
 
-        try:
-            from .salesbook_exporter import SalesbookExporter
+        _, num_days = calendar.monthrange(year, month)
+        end_day = num_days
+        if (year, month) == (today.year, today.month):
+            end_day = today.day
 
-            exporter = SalesbookExporter(self.config)
-            _, num_days = calendar.monthrange(year, month)
-
-            exported_files = []
-            failed_dates = []
-            for day in range(1, num_days + 1):
-                date_obj = datetime.date(year, month, day)
-                result = exporter.export_daily_salesbook(date_obj)
-                if result.get("success"):
-                    if result.get("summary_file"):
-                        exported_files.append({
-                            "date": date_obj.strftime("%Y-%m-%d"),
-                            "summary": result.get("summary_file"),
-                            "details": result.get("details_file"),
-                        })
-                else:
-                    if "No transactions" not in result.get("error", ""):
-                        failed_dates.append(date_obj.strftime("%Y-%m-%d"))
-
-            if exported_files:
-                self._set_status(f"Exported {len(exported_files)} days from {year}-{month:02d}")
-                self._show_results(exported_files)
-            else:
-                self._set_status("No transactions found for that month", is_error=True)
-
-            if failed_dates:
-                logger.warning("Export failed for dates: %s", ", ".join(failed_dates))
-        except Exception as exc:
-            logger.error("Export by month failed: %s", exc)
-            self._set_status(str(exc), is_error=True)
+        dates = [
+            datetime.date(year, month, day).strftime("%Y-%m-%d")
+            for day in range(1, end_day + 1)
+        ]
+        self._start_worker(dates, f"Exporting salesbook for {year}-{month:02d}...")
 
     def export_by_date_range(self):
         start_date = self.range_start.date().toString("yyyy-MM-dd")
@@ -500,41 +650,18 @@ class ExportWindow:
             self._set_status("Start date must be before end date", is_error=True)
             return
 
-        self._set_status(f"Exporting salesbook from {start_date} to {end_date}...")
-        try:
-            from .salesbook_exporter import SalesbookExporter
+        today = datetime.date.today()
+        end_date_obj = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
+        if end_date_obj > today:
+            end_date_obj = today
+            end_date = end_date_obj.strftime("%Y-%m-%d")
 
-            exporter = SalesbookExporter(self.config)
-            exported_files = []
-            failed_dates = []
-            current_date = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
-            end_date_obj = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
-
-            while current_date <= end_date_obj:
-                result = exporter.export_daily_salesbook(current_date)
-                if result.get("success"):
-                    if result.get("summary_file"):
-                        exported_files.append({
-                            "date": current_date.strftime("%Y-%m-%d"),
-                            "summary": result.get("summary_file"),
-                            "details": result.get("details_file"),
-                        })
-                else:
-                    if "No transactions" not in result.get("error", ""):
-                        failed_dates.append(current_date.strftime("%Y-%m-%d"))
-                current_date += datetime.timedelta(days=1)
-
-            if exported_files:
-                self._set_status(f"Exported {len(exported_files)} days from {start_date} to {end_date}")
-                self._show_results(exported_files)
-            else:
-                self._set_status("No transactions found for the selected range", is_error=True)
-
-            if failed_dates:
-                logger.warning("Export failed for dates: %s", ", ".join(failed_dates))
-        except Exception as exc:
-            logger.error("Export by range failed: %s", exc)
-            self._set_status(str(exc), is_error=True)
+        current_date = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
+        dates = []
+        while current_date <= end_date_obj:
+            dates.append(current_date.strftime("%Y-%m-%d"))
+            current_date += datetime.timedelta(days=1)
+        self._start_worker(dates, f"Exporting salesbook from {start_date} to {end_date}...")
 
     def open_export_folder(self):
         try:

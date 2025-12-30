@@ -37,7 +37,11 @@ class PrinterMemoryReader:
         Returns:
             Response from printer
         """
-        return self.printer.send_command(cmd)
+        if hasattr(self.printer, "send_command"):
+            return self.printer.send_command(cmd)
+        if hasattr(self.printer, "_send_to_serial"):
+            return self.printer._send_to_serial(cmd)
+        raise AttributeError("Printer driver does not support raw command sending")
 
     def _is_success_response(self, response):
         """Check if response indicates success

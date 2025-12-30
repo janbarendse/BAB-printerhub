@@ -11,6 +11,8 @@ import sys
 import threading
 import ctypes
 
+from PySide6 import QtCore, QtGui
+
 logger = logging.getLogger(__name__)
 
 
@@ -121,8 +123,8 @@ class ConfigSettingsWindow:
 
         self.window = QMainWindow()
         self.window.setWindowTitle("BAB Cloud - Settings")
-        self.window.resize(1000, 820)
-        self.window.setMinimumSize(860, 720)
+        self.window.resize(960, 720)
+        self.window.setMinimumSize(820, 600)
 
         base_dir = _resolve_base_dir()
         icon_path = os.path.join(base_dir, "logo.png")
@@ -213,6 +215,17 @@ class ConfigSettingsWindow:
 
         self._apply_styles()
         self._load_config()
+        QtCore.QTimer.singleShot(0, self._finalize_layout)
+
+    def _finalize_layout(self):
+        self.window.adjustSize()
+        screen = QtGui.QGuiApplication.primaryScreen()
+        if screen:
+            max_height = max(480, screen.availableGeometry().height() - 40)
+            target_height = min(self.window.sizeHint().height(), max_height)
+            self.window.setMaximumHeight(target_height)
+            if self.window.height() > target_height:
+                self.window.resize(self.window.width(), target_height)
 
     def _apply_styles(self):
         self.window.setStyleSheet(
@@ -297,7 +310,7 @@ class ConfigSettingsWindow:
         )
 
     def _build_general_section(self):
-        from PySide6.QtWidgets import QGroupBox, QFormLayout, QComboBox
+        from PySide6.QtWidgets import QGroupBox, QFormLayout, QComboBox, QCheckBox
 
         group = QGroupBox("General")
         form = QFormLayout(group)
@@ -378,7 +391,9 @@ class ConfigSettingsWindow:
         form = QFormLayout(group)
         self.system_log_level = QComboBox()
         self.system_log_level.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+        self.system_demo_mode = QCheckBox("Enable demo mode")
         form.addRow("Log level", self.system_log_level)
+        form.addRow("", self.system_demo_mode)
 
         return group
 
@@ -401,6 +416,7 @@ class ConfigSettingsWindow:
         self.poll_software_retry.setValue(int(_get_nested(self.config, ["polling", "software_retry_interval_seconds"], 5)))
 
         self.system_log_level.setCurrentText(_get_nested(self.config, ["system", "log_level"], "INFO"))
+        self.system_demo_mode.setChecked(_get_nested(self.config, ["system", "demo_mode"], False))
 
     def _load_printer_details(self, printer_name):
         printer_cfg = _get_nested(self.config, ["printer", printer_name], {})
@@ -446,6 +462,7 @@ class ConfigSettingsWindow:
             },
             "system": {
                 "log_level": self.system_log_level.currentText(),
+                "demo_mode": self.system_demo_mode.isChecked(),
             },
         }
 
@@ -512,30 +529,53 @@ class ConfigSettingsWindow:
     def _restart_application(self):
         try:
             import subprocess
-            import psutil
             import time
 
             current_pid = os.getpid()
             main_process = None
-            for proc in psutil.process_iter(["pid", "name", "cmdline"]):
-                try:
-                    if proc.pid == current_pid:
+            psutil = None
+            try:
+                import psutil as _psutil
+                psutil = _psutil
+            except Exception:
+                psutil = None
+
+            if psutil:
+                for proc in psutil.process_iter(["pid", "name", "exe", "cmdline"]):
+                    try:
+                        if proc.pid == current_pid:
+                            continue
+                        cmdline = " ".join(proc.info.get("cmdline") or [])
+                        if "--modal" in cmdline:
+                            continue
+                        if "fiscal_printer_hub" in cmdline or "BAB-PrintHub" in cmdline:
+                            main_process = proc
+                            break
+                        if _is_compiled():
+                            exe = proc.info.get("exe")
+                            if exe and os.path.basename(exe).lower() == os.path.basename(sys.executable).lower():
+                                main_process = proc
+                                break
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
                         continue
-                    cmdline = " ".join(proc.info.get("cmdline") or [])
-                    if "fiscal_printer_hub" in cmdline or "BAB-PrintHub" in cmdline:
-                        main_process = proc
-                        break
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
 
             if main_process:
                 try:
                     main_process.terminate()
                     main_process.wait(timeout=5)
-                except psutil.TimeoutExpired:
+                except Exception:
                     main_process.kill()
                     main_process.wait(timeout=3)
                 time.sleep(2)
+            elif _is_compiled():
+                exe_name = os.path.basename(sys.executable)
+                cmd = f'timeout /t 2 /nobreak >nul & taskkill /F /IM "{exe_name}" >nul 2>&1 & start "" "{sys.executable}"'
+                subprocess.Popen(
+                    ["cmd", "/c", cmd],
+                    cwd=os.path.dirname(sys.executable),
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
+                )
+                os._exit(0)
 
             if _is_compiled():
                 executable = sys.executable
@@ -551,6 +591,7 @@ class ConfigSettingsWindow:
             os._exit(0)
         except Exception as exc:
             logger.error("Error restarting application: %s", exc)
+            self._set_status(f"Restart failed: {exc}", is_error=True)
 
 
 def _open_config_settings_window(config_path, config):

@@ -206,3 +206,8 @@ class BasePrinter(ABC):
         """String representation of the printer."""
         status = "connected" if self.connected else "disconnected"
         return f"<{self.__class__.__name__} ({self.get_name()}) {status} on {self.com_port or 'None'}>"
+
+    def is_demo_mode(self) -> bool:
+        """Return True when demo mode is enabled in config."""
+        system_cfg = self.config.get("system", {})
+        return bool(system_cfg.get("demo_mode", False) or self.config.get("demo_mode", False))

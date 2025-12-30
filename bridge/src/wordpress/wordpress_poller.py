@@ -466,6 +466,22 @@ class BABPortalPoller:
 
             if response.status_code == 200:
                 data = response.json()
+                try:
+                    from src.core.config_manager import save_config
+                    import datetime as dt
+
+                    babportal_cfg = self.config.setdefault('babportal', {})
+                    if 'cloud_only' in data:
+                        babportal_cfg['cloud_only'] = bool(data.get('cloud_only'))
+                    if 'cloud_grace_hours' in data:
+                        try:
+                            babportal_cfg['cloud_grace_hours'] = int(data.get('cloud_grace_hours'))
+                        except (TypeError, ValueError):
+                            pass
+                    babportal_cfg['last_license_check'] = dt.datetime.now().isoformat()
+                    save_config(self.config)
+                except Exception as exc:
+                    logger.warning(f"Failed updating cloud policy from heartbeat: {exc}")
                 logger.debug(f"Heartbeat sent successfully")
                 return data
             else:

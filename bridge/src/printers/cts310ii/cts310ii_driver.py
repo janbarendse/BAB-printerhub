@@ -1228,6 +1228,11 @@ class CTS310iiDriver(BasePrinter):
 
             self._add_comment(f"Document Nr: {document_number}")
 
+            if self.is_demo_mode():
+                self._add_comment("------------------------------------------------")
+                self._add_comment("DEMO")
+                self._add_comment("------------------------------------------------")
+
             # Add general comment if present
             if general_comment:
                 self._add_comment("------------------------------------------------")

@@ -10,6 +10,8 @@ import sys
 import logging
 import threading
 import queue
+import datetime
+import math
 from PIL import Image
 import pystray
 from pystray import Menu as menu, MenuItem as item
@@ -60,12 +62,9 @@ class SystemTray:
         self.modal_queue = modal_queue
         self.icon = None
 
-        # Check if cloud mode is enabled
-        self.is_cloud_mode = config.get('mode') == 'cloud' and config.get('babportal', {}).get('enabled', False)
-
         # Initialize WordPress command sender for cloud mode
         self.wp_sender = None
-        if self.is_cloud_mode:
+        if self._should_use_cloud():
             try:
                 import sys
                 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'wordpress'))
@@ -74,7 +73,68 @@ class SystemTray:
                 logger.info("System tray: Cloud mode enabled, commands will route through WordPress")
             except Exception as e:
                 logger.error(f"Failed to initialize WordPress command sender: {e}")
-                self.is_cloud_mode = False
+                self.wp_sender = None
+
+    def _cloud_mode_enabled(self) -> bool:
+        return self.config.get('mode') == 'cloud' and self.config.get('babportal', {}).get('enabled', False)
+
+    def _demo_mode(self) -> bool:
+        return bool(self.config.get('system', {}).get('demo_mode', False))
+
+    def _cloud_policy_enabled(self) -> bool:
+        return bool(self.config.get('babportal', {}).get('cloud_only', False))
+
+    def _cloud_grace_hours(self) -> int:
+        try:
+            return int(self.config.get('babportal', {}).get('cloud_grace_hours', 72))
+        except (TypeError, ValueError):
+            return 72
+
+    def _within_cloud_grace(self) -> bool:
+        last_check = self.config.get('babportal', {}).get('last_license_check')
+        if not last_check:
+            return self._cloud_grace_hours() > 0
+        try:
+            last_dt = datetime.datetime.fromisoformat(last_check)
+        except Exception:
+            return False
+        return (datetime.datetime.now() - last_dt) <= datetime.timedelta(hours=self._cloud_grace_hours())
+
+    def _grace_remaining_hours(self) -> int:
+        grace_hours = self._cloud_grace_hours()
+        last_check = self.config.get('babportal', {}).get('last_license_check')
+        if not last_check:
+            return grace_hours
+        try:
+            last_dt = datetime.datetime.fromisoformat(last_check)
+        except Exception:
+            return grace_hours
+        elapsed = datetime.datetime.now() - last_dt
+        remaining = datetime.timedelta(hours=grace_hours) - elapsed
+        remaining_hours = max(0, math.ceil(remaining.total_seconds() / 3600))
+        return remaining_hours
+
+    def _portal_unreachable_over_hours(self, hours: int) -> bool:
+        last_check = self.config.get('babportal', {}).get('last_license_check')
+        if not last_check:
+            return False
+        try:
+            last_dt = datetime.datetime.fromisoformat(last_check)
+        except Exception:
+            return False
+        return (datetime.datetime.now() - last_dt) >= datetime.timedelta(hours=hours)
+
+    def _should_use_cloud(self) -> bool:
+        if self._demo_mode():
+            return False
+        return self._cloud_mode_enabled() or self._cloud_policy_enabled()
+
+    def _should_fallback_to_local(self, result) -> bool:
+        if not self._cloud_policy_enabled():
+            return False
+        if not self._within_cloud_grace():
+            return False
+        return result.get("error_code") in ("connection_error", "config_missing")
 
     def _open_fiscal_tools(self):
         """Signal main thread to open fiscal tools modal."""
@@ -98,9 +158,12 @@ class SystemTray:
             logger.info("X-Report triggered from system tray")
 
             # Route through WordPress in cloud mode
-            if self.is_cloud_mode and self.wp_sender:
+            if self._should_use_cloud() and self.wp_sender:
                 logger.info("Cloud mode: Routing X-Report through WordPress API")
                 result = self.wp_sender.print_x_report()
+                if not result.get("success") and self._should_fallback_to_local(result):
+                    logger.warning("Cloud-only enforced, portal unreachable; using grace fallback")
+                    result = self.printer.print_x_report()
             else:
                 # Local execution
                 result = self.printer.print_x_report()
@@ -118,9 +181,12 @@ class SystemTray:
             logger.info("Z-Report triggered from system tray")
 
             # Route through WordPress in cloud mode
-            if self.is_cloud_mode and self.wp_sender:
+            if self._should_use_cloud() and self.wp_sender:
                 logger.info("Cloud mode: Routing Z-Report through WordPress API")
                 result = self.wp_sender.print_z_report()
+                if not result.get("success") and self._should_fallback_to_local(result):
+                    logger.warning("Cloud-only enforced, portal unreachable; using grace fallback")
+                    result = self.printer.print_z_report(close_fiscal_day=True)
             else:
                 # Local execution
                 result = self.printer.print_z_report(close_fiscal_day=True)
@@ -149,9 +215,12 @@ class SystemTray:
             logger.info("NO SALE triggered from system tray")
 
             # Route through WordPress in cloud mode
-            if self.is_cloud_mode and self.wp_sender:
+            if self._should_use_cloud() and self.wp_sender:
                 logger.info("Cloud mode: Routing NO SALE through WordPress API")
                 result = self.wp_sender.print_no_sale()
+                if not result.get("success") and self._should_fallback_to_local(result):
+                    logger.warning("Cloud-only enforced, portal unreachable; using grace fallback")
+                    result = self.printer.print_no_sale()
             else:
                 # Local execution
                 result = self.printer.print_no_sale()
@@ -302,7 +371,7 @@ class SystemTray:
         active_software = self.config.get('software', {}).get('active', 'unknown').upper()
         active_printer = self.config.get('printer', {}).get('active', 'unknown').upper()
 
-        return menu(
+        items = [
             item('Fiscal Tools', self._open_fiscal_tools, default=True),
             item('Export Salesbook', self._open_export_modal),
             menu.SEPARATOR,
@@ -317,7 +386,26 @@ class SystemTray:
             item(f'Status: {active_software} > {active_printer}', None, enabled=False),
             menu.SEPARATOR,
             item(f'Quit BAB PrintHub v{VERSION}', self._quit_application)
-        )
+        ]
+
+        if self._demo_mode():
+            remaining_hours = self._grace_remaining_hours()
+            items.insert(
+                10,
+                item(f'Demo mode (Grace {remaining_hours}h)', None, enabled=False),
+            )
+        elif (
+            self._cloud_policy_enabled()
+            and self._within_cloud_grace()
+            and self._portal_unreachable_over_hours(1)
+        ):
+            remaining_hours = self._grace_remaining_hours()
+            items.insert(
+                10,
+                item(f'App in Grace mode ({remaining_hours}h left)', None, enabled=False),
+            )
+
+        return menu(*items)
 
     def run(self):
         """
