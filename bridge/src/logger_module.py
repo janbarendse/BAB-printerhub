@@ -4,6 +4,7 @@ Centralized logging configuration for BAB-Cloud PrintHub.
 Provides a configured logger instance that writes to both console and file.
 """
 
+import json
 import logging
 from logging.handlers import RotatingFileHandler
 import os
@@ -34,6 +35,25 @@ simple_formatter = logging.Formatter(
     '%(levelname)s - %(message)s'
 )
 
+def _load_config_log_level():
+    config_path = os.path.join(BASE_DIR, 'config.json')
+    try:
+        with open(config_path, 'r', encoding='utf-8') as handle:
+            config = json.load(handle)
+        level_name = str(config.get('system', {}).get('log_level', 'INFO')).upper()
+    except Exception:
+        level_name = 'INFO'
+
+    level_map = {
+        'DEBUG': logging.DEBUG,
+        'INFO': logging.INFO,
+        'WARNING': logging.WARNING,
+        'ERROR': logging.ERROR,
+        'CRITICAL': logging.CRITICAL,
+    }
+    return level_map.get(level_name, logging.INFO)
+
+
 # File handler (with rotation)
 log_file = os.path.join(BASE_DIR, 'log.log')
 file_handler = RotatingFileHandler(
@@ -42,7 +62,7 @@ file_handler = RotatingFileHandler(
     backupCount=5,
     encoding='utf-8'
 )
-file_handler.setLevel(logging.DEBUG)
+file_handler.setLevel(_load_config_log_level())
 file_handler.setFormatter(detailed_formatter)
 
 # Console handler

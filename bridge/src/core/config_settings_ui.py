@@ -358,9 +358,14 @@ class ConfigSettingsWindow:
                 border: 1px solid #d1d5db;
                 background: #ffffff;
             }
+            QCheckBox::indicator:unchecked {
+                background: #f3f4f6;
+                border-color: #d1d5db;
+            }
             QCheckBox::indicator:checked {
                 background: #b91c1c;
                 border-color: #b91c1c;
+                image: url(:/qt-project.org/styles/commonstyle/images/standardbutton-apply-16.png);
             }
             QLineEdit, QComboBox, QSpinBox {
                 background: #ffffff;
@@ -660,6 +665,25 @@ class ConfigSettingsWindow:
                     except (psutil.NoSuchProcess, psutil.AccessDenied):
                         continue
 
+            def _resolve_main_executable():
+                if not _is_compiled():
+                    return None
+                exe = sys.executable
+                arg_text = " ".join(sys.argv)
+                base_dir = os.path.dirname(exe)
+                if "--modal" in arg_text or "ui_modal_runner" in os.path.basename(exe).lower():
+                    try:
+                        from src.version import VERSION
+                        candidate = os.path.join(base_dir, f"BAB-PrintHub-v{VERSION}.exe")
+                        if os.path.exists(candidate):
+                            return candidate
+                    except Exception:
+                        pass
+                    for name in os.listdir(base_dir):
+                        if name.lower().startswith("bab-printhub-v") and name.lower().endswith(".exe"):
+                            return os.path.join(base_dir, name)
+                return exe
+
             if main_process:
                 try:
                     main_process.terminate()
@@ -669,7 +693,8 @@ class ConfigSettingsWindow:
                     main_process.wait(timeout=3)
                 time.sleep(2)
             elif _is_compiled():
-                exe_name = os.path.basename(sys.executable)
+                target_exe = _resolve_main_executable()
+                exe_name = os.path.basename(target_exe or sys.executable)
                 cmd = f'timeout /t 2 /nobreak >nul & taskkill /F /IM "{exe_name}" >nul 2>&1 & start "" "{sys.executable}"'
                 subprocess.Popen(
                     ["cmd", "/c", cmd],
@@ -679,7 +704,7 @@ class ConfigSettingsWindow:
                 os._exit(0)
 
             if _is_compiled():
-                executable = sys.executable
+                executable = _resolve_main_executable() or sys.executable
                 subprocess.Popen([executable], cwd=os.path.dirname(executable))
             else:
                 bridge_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
