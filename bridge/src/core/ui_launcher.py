@@ -62,20 +62,22 @@ class UIModalLauncher:
         self.ui_entry = os.path.join(self.base_dir, "src", "core", "ui_modal_runner.py")
 
     def launch(self, modal_name: str) -> bool:
-        if not self.python_exe:
-            logger.error("UI runtime not found. Set BAB_UI_PYTHON or bundle ui_runtime.")
-            return False
-        if not os.path.exists(self.ui_entry):
-            logger.error("UI entrypoint not found: %s", self.ui_entry)
-            return False
-
         env = os.environ.copy()
         env["BAB_PIPE_NAME"] = self.pipe_name
         env["BAB_PIPE_KEY"] = self.auth_key.hex()
         env["BAB_UI_BASE"] = self.base_dir
         env["PYTHONPATH"] = f"{self.base_dir}{os.pathsep}{env.get('PYTHONPATH', '')}"
 
-        args = [self.python_exe, self.ui_entry, f"--modal={modal_name}"]
+        if _is_compiled():
+            args = [sys.executable, f"--modal={modal_name}"]
+        else:
+            if not self.python_exe:
+                logger.error("UI runtime not found. Set BAB_UI_PYTHON or bundle ui_runtime.")
+                return False
+            if not os.path.exists(self.ui_entry):
+                logger.error("UI entrypoint not found: %s", self.ui_entry)
+                return False
+            args = [self.python_exe, self.ui_entry, f"--modal={modal_name}"]
         try:
             subprocess.Popen(
                 args,
