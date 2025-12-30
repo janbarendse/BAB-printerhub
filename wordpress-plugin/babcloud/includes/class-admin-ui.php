@@ -196,9 +196,18 @@ class BABCloud_Admin_UI {
     public static function printer_token_metabox($post) {
         $token_hash = get_post_meta($post->ID, 'device_token_hash', true);
         $token_generated = get_post_meta($post->ID, 'token_generated_at', true);
+        $new_token = get_transient('babcloud_new_token_' . $post->ID);
 
         ?>
         <div style="padding: 10px;">
+            <?php if ($new_token): ?>
+                <div style="background: #f0f0f0; padding: 12px; margin: 0 0 12px 0; border-radius: 4px; border: 2px solid #00a32a;">
+                    <p style="margin: 0 0 6px 0;"><strong><?php _e('✓ New Device Token (copy now)', 'babcloud'); ?></strong></p>
+                    <code style="font-size: 13px; font-family: 'Courier New', monospace; word-break: break-all; display: block;"><?php echo esc_html($new_token); ?></code>
+                    <button type="button" class="button" style="margin-top: 8px;" onclick="navigator.clipboard.writeText('<?php echo esc_js($new_token); ?>').then(() => alert('✓ Token copied to clipboard'))"><?php _e('Copy Token', 'babcloud'); ?></button>
+                </div>
+                <?php delete_transient('babcloud_new_token_' . $post->ID); ?>
+            <?php endif; ?>
             <?php if ($token_hash): ?>
                 <p><strong><?php _e('Token Status:', 'babcloud'); ?></strong> <span style="color: green;">✓ <?php _e('Generated', 'babcloud'); ?></span></p>
                 <p><small><?php _e('Generated:', 'babcloud'); ?> <?php echo esc_html($token_generated); ?></small></p>
@@ -395,9 +404,6 @@ class BABCloud_Admin_UI {
         // Check for token transient
         $token = get_transient('babcloud_new_token_' . $post_id);
         if ($token) {
-            // Delete transient so it only shows once
-            delete_transient('babcloud_new_token_' . $post_id);
-
             // Display token
             ?>
             <div class="notice notice-success is-dismissible">
