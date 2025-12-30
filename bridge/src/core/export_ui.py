@@ -139,6 +139,8 @@ class ExportWindow(QtCore.QObject):
 
         base_dir = _resolve_base_dir()
         icon_path = os.path.join(base_dir, "logo.png")
+        arrow_down_path = os.path.join(base_dir, "arrow_down.svg")
+        arrow_up_path = os.path.join(base_dir, "arrow_up.svg")
         if os.path.exists(icon_path):
             self.window.setWindowIcon(QIcon(icon_path))
 
@@ -155,6 +157,7 @@ class ExportWindow(QtCore.QObject):
         header_layout.setSpacing(16)
 
         logo = QLabel()
+        logo.setObjectName("logo")
         if os.path.exists(icon_path):
             from PySide6.QtGui import QPixmap
 
@@ -165,14 +168,17 @@ class ExportWindow(QtCore.QObject):
         title_box = QWidget()
         title_layout = QVBoxLayout(title_box)
         title_layout.setContentsMargins(0, 0, 0, 0)
-        title_layout.setSpacing(2)
+        title_layout.setSpacing(0)
         title = QLabel("Salesbook Export")
         title.setObjectName("headerTitle")
         subtitle = QLabel("Export CSV summaries and detail files")
         subtitle.setObjectName("headerSubtitle")
         title_layout.addWidget(title)
         title_layout.addWidget(subtitle)
+        title_layout.setSpacing(4)
+        title_layout.setAlignment(self._Qt.AlignVCenter)
 
+        header_layout.setAlignment(self._Qt.AlignVCenter)
         header_layout.addWidget(logo)
         header_layout.addWidget(title_box, 1)
 
@@ -317,8 +323,8 @@ class ExportWindow(QtCore.QObject):
         results_group = QGroupBox("Export Results")
         results_group.setObjectName("resultsGroup")
         results_layout = QVBoxLayout(results_group)
-        results_layout.setContentsMargins(14, 12, 14, 12)
-        results_layout.setSpacing(8)
+        results_layout.setContentsMargins(22, 20, 22, 20)
+        results_layout.setSpacing(12)
 
         self.results_container = QWidget()
         self.results_layout = QVBoxLayout(self.results_container)
@@ -358,7 +364,7 @@ class ExportWindow(QtCore.QObject):
 
         root_layout.addWidget(footer)
 
-        self._apply_styles()
+        self._apply_styles(arrow_down_path, arrow_up_path)
         self._export_thread = None
         self._export_worker = None
         self._avg_day_seconds = None
@@ -368,9 +374,10 @@ class ExportWindow(QtCore.QObject):
         self.window.adjustSize()
         self.window.setMaximumHeight(self.window.sizeHint().height())
 
-    def _apply_styles(self):
-        self.window.setStyleSheet(
-            """
+    def _apply_styles(self, arrow_down_path, arrow_up_path):
+        arrow_down_url = arrow_down_path.replace("\\", "/")
+        arrow_up_url = arrow_up_path.replace("\\", "/")
+        style = """
             QMainWindow {
                 background-color: #f5f6f8;
                 color: #111827;
@@ -383,13 +390,73 @@ class ExportWindow(QtCore.QObject):
                 font-size: 22px;
                 font-weight: 800;
                 color: #ffffff;
+                margin: 0;
+                padding: 0;
+                line-height: 22px;
             }
             QLabel#headerSubtitle {
                 font-size: 12px;
                 color: #f3d6d6;
+                margin: 0;
+                padding: 0;
+                line-height: 12px;
+            }
+            QComboBox#inputField, QDateEdit#inputField, QSpinBox#inputField {
+                padding-right: 24px;
+                font-size: 18px;
+            }
+            QComboBox#inputField::drop-down, QDateEdit#inputField::drop-down, QDateEdit::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 60px;
+                margin: 2px;
+                border: none;
+                background: #f3f4f6;
+                border-radius: 8px;
+            }
+            QComboBox#inputField::down-arrow, QDateEdit#inputField::down-arrow, QDateEdit::down-arrow {
+                image: url(__ARROW_DOWN__);
+                width: 18px;
+                height: 18px;
+                subcontrol-position: center;
+            }
+            QSpinBox#inputField::up-button, QSpinBox#inputField::down-button {
+                subcontrol-origin: content;
+                subcontrol-position: center right;
+                width: 60px;
+                margin-top: 6px;
+                margin-bottom: 6px;
+                margin-right: 6px;
+                border: none;
+            }
+            QSpinBox#inputField::up-button {
+                background: transparent;
+                border-radius: 8px;
+            }
+            QSpinBox#inputField::down-button {
+                background: transparent;
+            }
+            QSpinBox#inputField::up-arrow {
+                image: url(__ARROW_UP__);
+                width: 18px;
+                height: 18px;
+                subcontrol-position: center right;
+                right: 6px;
+            }
+            QSpinBox#inputField::down-arrow {
+                image: url(__ARROW_DOWN__);
+                width: 18px;
+                height: 18px;
+                subcontrol-position: center right;
+                right: -12px;
             }
             QWidget#scroll {
                 background: transparent;
+            }
+            QLabel#logo {
+                background: #ffffff;
+                border-radius: 10px;
+                padding: 6px;
             }
             QFrame#card {
                 background: #ffffff;
@@ -421,8 +488,9 @@ class ExportWindow(QtCore.QObject):
                 background: #ffffff;
                 border: 1px solid #d1d5db;
                 border-radius: 8px;
-                padding: 6px 8px;
+                padding: 8px 12px;
                 color: #111827;
+                font-size: 18px;
             }
             QPushButton#primaryButtonWide {
                 background-color: #b91c1c;
@@ -481,7 +549,9 @@ class ExportWindow(QtCore.QObject):
                 color: #6b7280;
             }
             """
-        )
+        style = style.replace("__ARROW_DOWN__", arrow_down_url)
+        style = style.replace("__ARROW_UP__", arrow_up_url)
+        self.window.setStyleSheet(style)
 
     def _set_status(self, message, is_error=False):
         self.status_label.setText(message)

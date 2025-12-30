@@ -251,10 +251,41 @@ class BABCloud_REST_API {
     public static function complete_command($request) {
         $printer = $request->get_param('_printer_object');
 
+        $body = $request->get_json_params();
+        if (empty($body)) {
+            $body = $request->get_body_params();
+        }
+
+        $status = isset($body['status']) ? sanitize_text_field($body['status']) : 'success';
+        $result = isset($body['result']) ? wp_json_encode($body['result']) : '';
+        $error = isset($body['error']) ? sanitize_text_field($body['error']) : '';
+
+        $pending_command = get_post_meta($printer->ID, 'pending_command', true);
+        $command = $pending_command ? json_decode($pending_command, true) : null;
+
         // Simple approach like clear-pending-command.php - just clear it
         // Clear pending command
         delete_post_meta($printer->ID, 'pending_command');
-        update_post_meta($printer->ID, 'command_status', 'completed');
+        update_post_meta($printer->ID, 'command_status', $status === 'failed' ? 'failed' : 'completed');
+        if (!empty($result)) {
+            update_post_meta($printer->ID, 'command_result', $result);
+        } else {
+            delete_post_meta($printer->ID, 'command_result');
+        }
+        if (!empty($error)) {
+            update_post_meta($printer->ID, 'command_error', $error);
+        } else {
+            delete_post_meta($printer->ID, 'command_error');
+        }
+
+        if ($command && isset($command['command_type'])) {
+            $now = current_time('mysql');
+            if ($command['command_type'] === 'zreport') {
+                update_post_meta($printer->ID, 'last_zreport_at', $now);
+            } elseif ($command['command_type'] === 'xreport') {
+                update_post_meta($printer->ID, 'last_xreport_at', $now);
+            }
+        }
 
         return new WP_REST_Response(array(
             'success' => true,
@@ -320,6 +351,7 @@ class BABCloud_REST_API {
         }
 
         update_post_meta($printer->ID, 'license_valid', $license_valid ? '1' : '0');
+        update_post_meta($printer->ID, 'subscription_active', $subscription_active ? '1' : '0');
 
         $cloud_only = get_post_meta($printer->ID, 'cloud_only', true);
         $cloud_grace_hours = get_post_meta($printer->ID, 'cloud_grace_hours', true);
@@ -367,6 +399,9 @@ class BABCloud_REST_API {
             }
         }
 
+        update_post_meta($printer->ID, 'license_valid', $license_valid ? '1' : '0');
+        update_post_meta($printer->ID, 'subscription_active', $subscription_active ? '1' : '0');
+
         return new WP_REST_Response(array(
             'valid' => $license_valid,
             'expiry' => $license_expiry,
@@ -381,6 +416,20 @@ class BABCloud_REST_API {
      * Helper function to create a command
      */
     private static function create_command($printer, $command_type, $params = array()) {
+        // License enforcement
+        $subscription_active = ($printer->post_status === 'publish');
+        $license_valid = get_post_meta($printer->ID, 'license_valid', true);
+        if ($license_valid === '') {
+            $license_valid = '1';
+        }
+        if (!$subscription_active || $license_valid !== '1') {
+            return new WP_Error(
+                'license_inactive',
+                __('Printer subscription is inactive or expired.', 'babcloud'),
+                array('status' => 403)
+            );
+        }
+
         // Check if PrintHub bridge is online (heartbeat within last 3 minutes)
         $last_seen = get_post_meta($printer->ID, 'last_seen', true);
 

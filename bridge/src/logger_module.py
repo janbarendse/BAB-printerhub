@@ -50,11 +50,15 @@ console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(simple_formatter)
 
-# Add handlers to logger
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
+# Add handlers to logger (avoid duplicates on re-import)
+_added_handlers = False
+if not logger.handlers:
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    _added_handlers = True
 
 # Prevent logging from propagating to root logger
 logger.propagate = False
 
-logger.info("Logger initialized")
+if _added_handlers:
+    logger.info("Logger initialized")

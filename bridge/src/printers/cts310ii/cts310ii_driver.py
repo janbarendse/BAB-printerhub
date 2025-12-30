@@ -185,6 +185,14 @@ def split_comment_into_lines(comment: str, max_chars: int = 48) -> List[str]:
     return lines
 
 
+def center_line(text: str, width: int = 48) -> str:
+    """Center text within a fixed-width line."""
+    text = text.strip()
+    if len(text) >= width:
+        return text
+    padding = (width - len(text)) // 2
+    return (" " * padding) + text
+
 # =============================================================================
 # MAIN DRIVER CLASS
 # =============================================================================
@@ -1229,9 +1237,9 @@ class CTS310iiDriver(BasePrinter):
             self._add_comment(f"Document Nr: {document_number}")
 
             if self.is_demo_mode():
-                self._add_comment("------------------------------------------------")
-                self._add_comment("DEMO")
-                self._add_comment("------------------------------------------------")
+                self._add_comment(" ")
+                self._add_comment(center_line("--- DEMO - INVALID RECEIPT ---"))
+                self._add_comment(" ")
 
             # Add general comment if present
             if general_comment:

@@ -74,6 +74,8 @@ class FiscalToolsWindow:
 
         base_dir = _resolve_base_dir()
         icon_path = os.path.join(base_dir, "logo.png")
+        arrow_down_path = os.path.join(base_dir, "arrow_down.svg")
+        arrow_up_path = os.path.join(base_dir, "arrow_up.svg")
         if os.path.exists(icon_path):
             self.window.setWindowIcon(QIcon(icon_path))
 
@@ -101,14 +103,17 @@ class FiscalToolsWindow:
         title_box = QWidget()
         title_layout = QVBoxLayout(title_box)
         title_layout.setContentsMargins(0, 0, 0, 0)
-        title_layout.setSpacing(2)
+        title_layout.setSpacing(0)
         title = QLabel("Fiscal PrintHub")
         title.setObjectName("headerTitle")
         subtitle = QLabel("Quick Report Generation")
         subtitle.setObjectName("headerSubtitle")
         title_layout.addWidget(title)
         title_layout.addWidget(subtitle)
+        title_layout.setSpacing(4)
+        title_layout.setAlignment(self._Qt.AlignVCenter)
 
+        header_layout.setAlignment(self._Qt.AlignVCenter)
         header_layout.addWidget(logo)
         header_layout.addWidget(title_box, 1)
 
@@ -121,7 +126,7 @@ class FiscalToolsWindow:
         self.receipt_doc.setPlaceholderText("Doc #")
         self.receipt_doc.setObjectName("inputField")
         receipt_btn = QPushButton("Print Copy")
-        receipt_btn.setObjectName("primaryButton")
+        receipt_btn.setObjectName("headerButton")
         receipt_btn.clicked.connect(self.print_copy)
         receipt_card = self._build_action_card("Receipt Copy", [self.receipt_doc, receipt_btn])
 
@@ -129,7 +134,7 @@ class FiscalToolsWindow:
         self.no_sale_reason.setPlaceholderText("Reason (optional)")
         self.no_sale_reason.setObjectName("inputField")
         no_sale_btn = QPushButton("No Sale")
-        no_sale_btn.setObjectName("primaryButton")
+        no_sale_btn.setObjectName("headerButton")
         no_sale_btn.clicked.connect(self.print_no_sale)
         no_sale_card = self._build_action_card("No Sale", [self.no_sale_reason, no_sale_btn])
 
@@ -207,7 +212,7 @@ class FiscalToolsWindow:
 
         root_layout.addWidget(footer)
 
-        self._apply_styles()
+        self._apply_styles(arrow_down_path, arrow_up_path)
         self._init_dates()
         QtCore.QTimer.singleShot(0, self._finalize_layout)
 
@@ -221,9 +226,10 @@ class FiscalToolsWindow:
             if self.window.height() > target_height:
                 self.window.resize(self.window.width(), target_height)
 
-    def _apply_styles(self):
-        self.window.setStyleSheet(
-            """
+    def _apply_styles(self, arrow_down_path, arrow_up_path):
+        arrow_down_url = arrow_down_path.replace("\\", "/")
+        arrow_up_url = arrow_up_path.replace("\\", "/")
+        style = """
             QMainWindow {
                 background-color: #f5f6f8;
                 color: #111827;
@@ -236,10 +242,65 @@ class FiscalToolsWindow:
                 font-size: 22px;
                 font-weight: 800;
                 color: #ffffff;
+                margin: 0;
+                padding: 0;
+                line-height: 22px;
             }
             QLabel#headerSubtitle {
                 font-size: 12px;
                 color: #f3d6d6;
+                margin: 0;
+                padding: 0;
+                line-height: 12px;
+            }
+            QDateEdit#inputField, QSpinBox#inputField {
+                padding-right: 24px;
+                font-size: 18px;
+            }
+            QDateEdit#inputField::drop-down, QDateEdit::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 60px;
+                margin: 2px;
+                border: none;
+                background: #f3f4f6;
+                border-radius: 8px;
+            }
+            QDateEdit#inputField::down-arrow, QDateEdit::down-arrow {
+                image: url(__ARROW_DOWN__);
+                width: 18px;
+                height: 18px;
+                subcontrol-position: center;
+            }
+            QSpinBox#inputField::up-button, QSpinBox#inputField::down-button {
+                subcontrol-origin: content;
+                subcontrol-position: center right;
+                width: 60px;
+                margin-top: 6px;
+                margin-bottom: 6px;
+                margin-right: 6px;
+                border: none;
+            }
+            QSpinBox#inputField::up-button {
+                background: transparent;
+                border-radius: 8px;
+            }
+            QSpinBox#inputField::down-button {
+                background: transparent;
+            }
+            QSpinBox#inputField::up-arrow {
+                image: url(__ARROW_UP__);
+                width: 18px;
+                height: 18px;
+                subcontrol-position: center right;
+                right: 6px;
+            }
+            QSpinBox#inputField::down-arrow {
+                image: url(__ARROW_DOWN__);
+                width: 18px;
+                height: 18px;
+                subcontrol-position: center right;
+                right: -12px;
             }
             QLabel#sectionTitle {
                 font-size: 16px;
@@ -259,6 +320,11 @@ class FiscalToolsWindow:
             }
             QWidget#scroll {
                 background: transparent;
+            }
+            QLabel#logo {
+                background: #ffffff;
+                border-radius: 10px;
+                padding: 6px;
             }
             QFrame#card {
                 background: #ffffff;
@@ -288,33 +354,33 @@ class FiscalToolsWindow:
                 background: #ffffff;
                 border: 1px solid #d1d5db;
                 border-radius: 8px;
-                padding: 6px 8px;
+                padding: 8px 12px;
                 color: #111827;
             }
             QDateEdit#inputField {
                 background: #ffffff;
                 border: 1px solid #d1d5db;
                 border-radius: 8px;
-                padding: 6px 8px;
+                padding: 8px 12px;
                 color: #111827;
             }
             QSpinBox#inputField {
                 background: #ffffff;
                 border: 1px solid #d1d5db;
                 border-radius: 8px;
-                padding: 6px 8px;
+                padding: 8px 12px;
                 color: #111827;
             }
-            QPushButton#primaryButton {
-                background-color: #b91c1c;
-                color: #ffffff;
-                border: none;
+            QPushButton#headerButton {
+                background-color: #ffffff;
+                color: #b91c1c;
+                border: 1px solid #fecaca;
                 border-radius: 8px;
                 padding: 6px 14px;
                 font-weight: 700;
             }
-            QPushButton#primaryButton:hover {
-                background-color: #991b1b;
+            QPushButton#headerButton:hover {
+                background-color: #fef2f2;
             }
             QPushButton#primaryButtonWide {
                 background-color: #b91c1c;
@@ -346,7 +412,9 @@ class FiscalToolsWindow:
                 color: #6b7280;
             }
             """
-        )
+        style = style.replace("__ARROW_DOWN__", arrow_down_url)
+        style = style.replace("__ARROW_UP__", arrow_up_url)
+        self.window.setStyleSheet(style)
 
     def _build_action_card(self, title, widgets):
         from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QWidget

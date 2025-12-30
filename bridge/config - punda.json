@@ -1,12 +1,12 @@
 {
   "software": {
-    "active": "tcpos",
+    "active": "odoo",
     "odoo": {
-      "enabled": false,
+      "enabled": true,
       "url": "https://makemyday-printerdev.odoo.com/odoo/point-of-sale",
       "credentials_file": "odoo_credentials_encrypted.json",
       "polling_interval_seconds": 3,
-      "last_order_id": 535,
+      "last_order_id": 532,
       "payment_methods": {
         "Cash punda": "00",
         "Cheque": "01",
@@ -22,7 +22,7 @@
       }
     },
     "tcpos": {
-      "enabled": true,
+      "enabled": false,
       "transactions_folder": "D:\\TCpos\\FrontEnd\\Transactions",
       "last_order_id": 0
     },
@@ -81,13 +81,13 @@
     "enabled": true,
     "url": "https://babcloud.linux",
     "poll_interval": 3,
-    "device_id": "chichi-stjoris-printer-1",
-    "device_token": "3d2e8382b7a33e8d43c04b786327b7c72f5cdf9b3353b662af03e69afb94473d",
+    "device_id": "chichi-printer-1",
+    "device_token": "af8d3cde724cdac65c72772d7d2ea7e2164fe133d0ea17796c92958d092dba5d",
     "api_version": "v1",
     "wordpress_username": "Chichi",
     "wordpress_app_password": "Vegm a5Vv oGjX Eobd vvZU A9HJ",
     "encrypted_app_password": false,
-    "last_license_check": "2025-12-30T01:17:13.655595",
+    "last_license_check": "2025-12-29T21:52:35.025008",
     "cloud_only": false,
     "cloud_grace_hours": 72,
     "license_valid": true,
@@ -98,13 +98,13 @@
     "last_z_report_print_time": "2025-12-20T20:57:48.505623"
   },
   "business": {
-    "name": "Creations Galore N.V.",
-    "tax_number": "122202235",
-    "address": "Windstraat 16",
+    "name": "BAB Restaurant",
+    "tax_number": "123456789",
+    "address": "",
     "city": "Willemstad",
     "country": "Curaçao",
     "software_name": "BAB PrintHub",
-    "software_version": "1.5",
+    "software_version": "2.0",
     "certification_number": "CERT2025"
   },
   "salesbook": {
@@ -117,7 +117,6 @@
   "system": {
     "single_instance": true,
     "log_level": "INFO",
-    "log_file": "log.log",
-    "demo_mode": true
+    "log_file": "log.log"
   }
 }

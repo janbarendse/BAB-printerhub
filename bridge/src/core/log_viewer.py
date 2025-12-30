@@ -79,8 +79,17 @@ class LogViewerWindow:
         header = QWidget()
         header.setObjectName("header")
         header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(16, 14, 16, 14)
-        header_layout.setSpacing(10)
+        header_layout.setContentsMargins(18, 14, 18, 14)
+        header_layout.setSpacing(16)
+
+        logo = QLabel()
+        logo.setObjectName("logo")
+        if icon_path and os.path.exists(icon_path):
+            from PySide6.QtGui import QPixmap
+
+            pix = QPixmap(icon_path)
+            if not pix.isNull():
+                logo.setPixmap(pix.scaled(56, 56, self._Qt.KeepAspectRatio, self._Qt.SmoothTransformation))
 
         left = QWidget()
         left_layout = QVBoxLayout(left)
@@ -93,6 +102,7 @@ class LogViewerWindow:
         subtitle.setObjectName("subtitle")
         left_layout.addWidget(title)
         left_layout.addWidget(subtitle)
+        left_layout.setAlignment(self._Qt.AlignVCenter)
 
         buttons = QWidget()
         buttons_layout = QHBoxLayout(buttons)
@@ -110,6 +120,8 @@ class LogViewerWindow:
         buttons_layout.addWidget(clear_btn)
         buttons_layout.addWidget(close_btn)
 
+        header_layout.setAlignment(self._Qt.AlignVCenter)
+        header_layout.addWidget(logo)
         header_layout.addWidget(left, 1)
         header_layout.addWidget(buttons, 0, self._Qt.AlignRight)
 
@@ -152,22 +164,28 @@ class LogViewerWindow:
         self.window.setStyleSheet(
             """
             QMainWindow {
-                background-color: #111827;
-                color: #ffffff;
+                background-color: #f5f6f8;
+                color: #111827;
             }
             QWidget#header {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #1f2937, stop:1 #111827);
-                border-bottom: 1px solid #374151;
+                background: #b91c1c;
+                border-bottom: 1px solid #991b1b;
+            }
+            QLabel#logo {
+                background: #ffffff;
+                border-radius: 10px;
+                padding: 6px;
             }
             QLabel#title {
                 font-size: 22px;
-                font-weight: 700;
+                font-weight: 800;
                 color: #ffffff;
+                margin: 0;
             }
             QLabel#subtitle {
                 font-size: 12px;
-                color: #9ca3af;
+                color: #f3d6d6;
+                margin: 0;
             }
             QPushButton {
                 border: none;
@@ -177,10 +195,10 @@ class LogViewerWindow:
                 color: #ffffff;
             }
             QPushButton#refreshButton {
-                background-color: #2563eb;
+                background-color: #374151;
             }
             QPushButton#refreshButton:hover {
-                background-color: #1d4ed8;
+                background-color: #1f2937;
             }
             QPushButton#clearButton {
                 background-color: #dc2626;
@@ -195,19 +213,35 @@ class LogViewerWindow:
                 background-color: #374151;
             }
             QPlainTextEdit#logContent {
-                background-color: #000000;
-                color: #4ade80;
-                border: none;
+                background-color: #ffffff;
+                color: #111827;
+                border: 1px solid #e5e7eb;
                 font-family: Consolas, "Courier New", monospace;
                 font-size: 12px;
             }
             QWidget#footer {
-                background-color: #1f2937;
-                border-top: 1px solid #374151;
+                background-color: #f3f4f6;
+                border-top: 1px solid #e5e7eb;
             }
             QLabel#footerText {
                 color: #6b7280;
                 font-size: 11px;
+            }
+            QMessageBox {
+                background-color: #ffffff;
+                color: #111827;
+            }
+            QMessageBox QPushButton {
+                border: none;
+                padding: 6px 14px;
+                border-radius: 6px;
+                font-weight: 600;
+                color: #ffffff;
+                background-color: #374151;
+                min-width: 70px;
+            }
+            QMessageBox QPushButton:hover {
+                background-color: #1f2937;
             }
             """
         )
@@ -230,14 +264,14 @@ class LogViewerWindow:
             self.log_content.setPlainText(f"Error loading logs: {exc}")
 
     def clear_logs(self):
-        reply = self._QMessageBox.question(
-            self.window,
-            "Clear Logs",
-            "Clear all logs?",
-            self._QMessageBox.Yes | self._QMessageBox.No,
-            self._QMessageBox.No,
-        )
-        if reply != self._QMessageBox.Yes:
+        dialog = self._QMessageBox(self.window)
+        dialog.setWindowTitle("Clear Logs")
+        dialog.setText("Clear all logs?")
+        dialog.setIcon(self._QMessageBox.Warning)
+        dialog.setStandardButtons(self._QMessageBox.Yes | self._QMessageBox.No)
+        dialog.setDefaultButton(self._QMessageBox.No)
+        dialog.setStyleSheet(self.window.styleSheet())
+        if dialog.exec() != self._QMessageBox.Yes:
             return
 
         try:

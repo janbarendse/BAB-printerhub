@@ -40,6 +40,19 @@ class CoreCommandHandler:
     def _demo_mode(self) -> bool:
         return bool(self.config.get("system", {}).get("demo_mode", False))
 
+    def _license_allows_action(self) -> bool:
+        if self._demo_mode():
+            return True
+        last_check = self.config.get("babportal", {}).get("last_license_check")
+        license_valid = self.config.get("babportal", {}).get("license_valid", True)
+        subscription_active = self.config.get("babportal", {}).get("subscription_active", True)
+        if not last_check:
+            return True
+        return bool(license_valid) and bool(subscription_active)
+
+    def _license_error(self) -> Dict[str, Any]:
+        return {"success": False, "error": "License inactive or expired"}
+
     def _cloud_grace_hours(self) -> int:
         try:
             return int(self.config.get("babportal", {}).get("cloud_grace_hours", 72))
@@ -167,6 +180,8 @@ class CoreCommandHandler:
 
     def _print_x_report(self) -> Dict[str, Any]:
         logger.info("IPC: X-Report requested")
+        if not self._license_allows_action():
+            return self._license_error()
         if self._should_use_cloud():
             self._ensure_wp_sender()
             if self._wp_sender:
@@ -186,6 +201,8 @@ class CoreCommandHandler:
 
     def _print_z_report(self) -> Dict[str, Any]:
         logger.info("IPC: Z-Report requested")
+        if not self._license_allows_action():
+            return self._license_error()
         if self._should_use_cloud():
             self._ensure_wp_sender()
             if self._wp_sender:
@@ -220,6 +237,8 @@ class CoreCommandHandler:
             return {"success": False, "error": "Start and end dates are required"}
 
         logger.info("IPC: Z-Report by date %s -> %s", start_date, end_date)
+        if not self._license_allows_action():
+            return self._license_error()
         if self._should_use_cloud():
             self._ensure_wp_sender()
             if self._wp_sender:
@@ -245,6 +264,8 @@ class CoreCommandHandler:
             return {"success": False, "error": "Report number is required"}
 
         logger.info("IPC: Z-Report by number %s", number)
+        if not self._license_allows_action():
+            return self._license_error()
         response = self.printer.print_z_report_by_number(int(number))
         if response.get("success"):
             return {"success": True, "message": response.get("message", "Z Report printed")}
@@ -262,6 +283,8 @@ class CoreCommandHandler:
             return {"success": False, "error": "Start number must be less than or equal to end number"}
 
         logger.info("IPC: Z-Report range %s -> %s", start_num, end_num)
+        if not self._license_allows_action():
+            return self._license_error()
         if self._should_use_cloud():
             self._ensure_wp_sender()
             if self._wp_sender:
@@ -285,6 +308,8 @@ class CoreCommandHandler:
             return {"success": False, "error": "Document number is required"}
 
         logger.info("IPC: Reprint document %s", document_number)
+        if not self._license_allows_action():
+            return self._license_error()
         if self._should_use_cloud():
             self._ensure_wp_sender()
             if self._wp_sender:
@@ -305,6 +330,8 @@ class CoreCommandHandler:
     def _print_no_sale(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         reason = payload.get("reason", "")
         logger.info("IPC: No Sale requested")
+        if not self._license_allows_action():
+            return self._license_error()
         if self._should_use_cloud():
             self._ensure_wp_sender()
             if self._wp_sender:

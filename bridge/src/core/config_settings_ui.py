@@ -10,16 +10,30 @@ import os
 import sys
 import threading
 import ctypes
-
 from PySide6 import QtCore, QtGui
 
-logger = logging.getLogger(__name__)
+from src.logger_module import logger as app_logger
+
+logger = app_logger
 
 
 def _show_error_messagebox(title, message):
     """Show native Windows error dialog for debugging modal failures."""
     try:
         ctypes.windll.user32.MessageBoxW(0, str(message), title, 0x10)  # MB_ICONERROR
+    except Exception:
+        pass
+
+
+def _install_excepthook():
+    def _hook(exc_type, exc_value, exc_traceback):
+        logger.error("Settings modal crash: %s", exc_value, exc_info=(exc_type, exc_value, exc_traceback))
+    sys.excepthook = _hook
+
+    def _qt_handler(msg_type, context, message):
+        logger.error("Qt message: %s", message)
+    try:
+        QtCore.qInstallMessageHandler(_qt_handler)
     except Exception:
         pass
 
@@ -121,6 +135,8 @@ class ConfigSettingsWindow:
         self.config_path = config_path
         self.config = config
 
+        _install_excepthook()
+
         self.window = QMainWindow()
         self.window.setWindowTitle("BAB Cloud - Settings")
         self.window.resize(960, 720)
@@ -128,6 +144,8 @@ class ConfigSettingsWindow:
 
         base_dir = _resolve_base_dir()
         icon_path = os.path.join(base_dir, "logo.png")
+        arrow_down_path = os.path.join(base_dir, "arrow_down.svg")
+        arrow_up_path = os.path.join(base_dir, "arrow_up.svg")
         if os.path.exists(icon_path):
             self.window.setWindowIcon(QIcon(icon_path))
 
@@ -145,7 +163,7 @@ class ConfigSettingsWindow:
         title_box = QWidget()
         title_layout = QVBoxLayout(title_box)
         title_layout.setContentsMargins(0, 0, 0, 0)
-        title_layout.setSpacing(2)
+        title_layout.setSpacing(0)
 
         title = QLabel("BAB Cloud - Settings")
         title.setObjectName("title")
@@ -153,6 +171,8 @@ class ConfigSettingsWindow:
         subtitle.setObjectName("subtitle")
         title_layout.addWidget(title)
         title_layout.addWidget(subtitle)
+        title_layout.setSpacing(4)
+        title_layout.setAlignment(self._Qt.AlignVCenter)
 
         logo_label = QLabel()
         logo_label.setObjectName("logo")
@@ -162,6 +182,7 @@ class ConfigSettingsWindow:
             pix = QPixmap(icon_path)
             if not pix.isNull():
                 logo_label.setPixmap(pix.scaled(64, 64, self._Qt.KeepAspectRatio, self._Qt.SmoothTransformation))
+        header_layout.setAlignment(self._Qt.AlignVCenter)
         header_layout.addWidget(logo_label)
         header_layout.addSpacing(12)
         header_layout.addWidget(title_box, 1)
@@ -213,7 +234,7 @@ class ConfigSettingsWindow:
         save_btn.clicked.connect(self.save_config)
         close_btn.clicked.connect(self.window.close)
 
-        self._apply_styles()
+        self._apply_styles(arrow_down_path, arrow_up_path)
         self._load_config()
         QtCore.QTimer.singleShot(0, self._finalize_layout)
 
@@ -227,9 +248,10 @@ class ConfigSettingsWindow:
             if self.window.height() > target_height:
                 self.window.resize(self.window.width(), target_height)
 
-    def _apply_styles(self):
-        self.window.setStyleSheet(
-            """
+    def _apply_styles(self, arrow_down_path, arrow_up_path):
+        arrow_down_url = arrow_down_path.replace("\\", "/")
+        arrow_up_url = arrow_up_path.replace("\\", "/")
+        style = """
             QMainWindow {
                 background-color: #f5f6f8;
                 color: #111827;
@@ -242,10 +264,65 @@ class ConfigSettingsWindow:
                 font-size: 22px;
                 font-weight: 700;
                 color: #ffffff;
+                margin: 0;
+                padding: 0;
+                line-height: 22px;
             }
             QLabel#subtitle {
                 font-size: 12px;
                 color: #f3d6d6;
+                margin: 0;
+                padding: 0;
+                line-height: 12px;
+            }
+            QComboBox, QSpinBox {
+                padding-right: 24px;
+                font-size: 18px;
+            }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 60px;
+                margin: 2px;
+                border: none;
+                background: #f3f4f6;
+                border-radius: 8px;
+            }
+            QComboBox::down-arrow {
+                image: url(__ARROW_DOWN__);
+                width: 18px;
+                height: 18px;
+                subcontrol-position: center;
+            }
+            QSpinBox::up-button, QSpinBox::down-button {
+                subcontrol-origin: content;
+                subcontrol-position: center right;
+                width: 60px;
+                margin-top: 6px;
+                margin-bottom: 6px;
+                margin-right: 6px;
+                border: none;
+            }
+            QSpinBox::up-button {
+                background: transparent;
+                border-radius: 8px;
+            }
+            QSpinBox::down-button {
+                background: transparent;
+            }
+            QSpinBox::up-arrow {
+                image: url(__ARROW_UP__);
+                width: 18px;
+                height: 18px;
+                subcontrol-position: center right;
+                right: 6px;
+            }
+            QSpinBox::down-arrow {
+                image: url(__ARROW_DOWN__);
+                width: 18px;
+                height: 18px;
+                subcontrol-position: center right;
+                right: -12px;
             }
             QWidget#scroll {
                 background: transparent;
@@ -253,23 +330,45 @@ class ConfigSettingsWindow:
             QGroupBox {
                 border: 1px solid #e5e7eb;
                 border-radius: 10px;
-                margin-top: 6px;
-                padding: 14px;
+                margin-top: 16px;
+                padding: 18px;
                 background: #ffffff;
             }
+            QLabel#logo {
+                background: #ffffff;
+                border-radius: 10px;
+                padding: 6px;
+            }
             QGroupBox::title {
-                subcontrol-origin: margin;
+                subcontrol-origin: padding;
+                subcontrol-position: top left;
                 left: 12px;
+                top: 10px;
                 padding: 0 6px;
                 color: #111827;
                 font-weight: 700;
+            }
+            QCheckBox {
+                color: #111827;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border-radius: 4px;
+                border: 1px solid #d1d5db;
+                background: #ffffff;
+            }
+            QCheckBox::indicator:checked {
+                background: #b91c1c;
+                border-color: #b91c1c;
             }
             QLineEdit, QComboBox, QSpinBox {
                 background: #ffffff;
                 border: 1px solid #d1d5db;
                 border-radius: 8px;
-                padding: 6px 8px;
+                padding: 8px 12px;
                 color: #111827;
+                font-size: 18px;
             }
             QCheckBox {
                 color: #111827;
@@ -307,7 +406,9 @@ class ConfigSettingsWindow:
                 background-color: #4b5563;
             }
             """
-        )
+        style = style.replace("__ARROW_DOWN__", arrow_down_url)
+        style = style.replace("__ARROW_UP__", arrow_up_url)
+        self.window.setStyleSheet(style)
 
     def _build_general_section(self):
         from PySide6.QtWidgets import QGroupBox, QFormLayout, QComboBox, QCheckBox
@@ -385,7 +486,7 @@ class ConfigSettingsWindow:
         return group
 
     def _build_system_section(self):
-        from PySide6.QtWidgets import QGroupBox, QFormLayout, QComboBox
+        from PySide6.QtWidgets import QGroupBox, QFormLayout, QComboBox, QCheckBox
 
         group = QGroupBox("System")
         form = QFormLayout(group)
@@ -605,9 +706,14 @@ def _open_config_settings_window(config_path, config):
     if app is None:
         app = QApplication([])
 
-    window = ConfigSettingsWindow(config_path, config)
-    window.window.show()
-    app.exec()
+    try:
+        window = ConfigSettingsWindow(config_path, config)
+        window.window.show()
+        app.exec()
+    except Exception as exc:
+        logger.error("Settings modal failed to open: %s", exc, exc_info=True)
+        _show_error_messagebox("Settings Error", str(exc))
+        raise
 
 
 def open_config_settings_modal(config_path, config):

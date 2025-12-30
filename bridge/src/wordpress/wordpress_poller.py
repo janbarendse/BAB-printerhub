@@ -471,6 +471,10 @@ class BABPortalPoller:
                     import datetime as dt
 
                     babportal_cfg = self.config.setdefault('babportal', {})
+                    if 'license_valid' in data:
+                        babportal_cfg['license_valid'] = bool(data.get('license_valid'))
+                    if 'subscription_active' in data:
+                        babportal_cfg['subscription_active'] = bool(data.get('subscription_active'))
                     if 'cloud_only' in data:
                         babportal_cfg['cloud_only'] = bool(data.get('cloud_only'))
                     if 'cloud_grace_hours' in data:

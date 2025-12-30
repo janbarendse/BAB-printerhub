@@ -81,6 +81,16 @@ class SystemTray:
     def _demo_mode(self) -> bool:
         return bool(self.config.get('system', {}).get('demo_mode', False))
 
+    def _license_allows_action(self) -> bool:
+        if self._demo_mode():
+            return True
+        last_check = self.config.get('babportal', {}).get('last_license_check')
+        license_valid = self.config.get('babportal', {}).get('license_valid', True)
+        subscription_active = self.config.get('babportal', {}).get('subscription_active', True)
+        if not last_check:
+            return True
+        return bool(license_valid) and bool(subscription_active)
+
     def _cloud_policy_enabled(self) -> bool:
         return bool(self.config.get('babportal', {}).get('cloud_only', False))
 
@@ -156,6 +166,9 @@ class SystemTray:
         """Print X report from system tray."""
         try:
             logger.info("X-Report triggered from system tray")
+            if not self._license_allows_action():
+                logger.warning("X-Report blocked: license inactive or expired")
+                return
 
             # Route through WordPress in cloud mode
             if self._should_use_cloud() and self.wp_sender:
@@ -179,6 +192,9 @@ class SystemTray:
         """Print Z report from system tray."""
         try:
             logger.info("Z-Report triggered from system tray")
+            if not self._license_allows_action():
+                logger.warning("Z-Report blocked: license inactive or expired")
+                return
 
             # Route through WordPress in cloud mode
             if self._should_use_cloud() and self.wp_sender:
@@ -213,6 +229,9 @@ class SystemTray:
         """Print NO SALE receipt from system tray."""
         try:
             logger.info("NO SALE triggered from system tray")
+            if not self._license_allows_action():
+                logger.warning("NO SALE blocked: license inactive or expired")
+                return
 
             # Route through WordPress in cloud mode
             if self._should_use_cloud() and self.wp_sender:
@@ -383,27 +402,25 @@ class SystemTray:
             menu.SEPARATOR,
             item('View Logs', self._open_log_window),
             item('Settings', self._open_settings),
-            item(f'Status: {active_software} > {active_printer}', None, enabled=False),
             menu.SEPARATOR,
-            item(f'Quit BAB PrintHub v{VERSION}', self._quit_application)
         ]
 
         if self._demo_mode():
             remaining_hours = self._grace_remaining_hours()
-            items.insert(
-                10,
-                item(f'Demo mode (Grace {remaining_hours}h)', None, enabled=False),
-            )
+            items.append(item(f'Demo mode (Grace {remaining_hours}h)', None, enabled=False))
         elif (
             self._cloud_policy_enabled()
             and self._within_cloud_grace()
             and self._portal_unreachable_over_hours(1)
         ):
             remaining_hours = self._grace_remaining_hours()
-            items.insert(
-                10,
-                item(f'App in Grace mode ({remaining_hours}h left)', None, enabled=False),
-            )
+            items.append(item(f'App in Grace mode ({remaining_hours}h left)', None, enabled=False))
+
+        items.extend([
+            item(f'Status: {active_software} > {active_printer}', None, enabled=False),
+            menu.SEPARATOR,
+            item(f'Quit BAB PrintHub v{VERSION}', self._quit_application)
+        ])
 
         return menu(*items)
 
