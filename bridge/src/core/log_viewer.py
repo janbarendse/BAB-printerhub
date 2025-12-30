@@ -306,7 +306,7 @@ def _run_log_viewer_standalone(config):
     logger.info("[LOG_VIEWER] _run_log_viewer_standalone called")
 
     base_dir = _resolve_base_dir()
-    icon_path = os.path.join(base_dir, 'logo.png')
+    icon_path = os.path.join(base_dir, 'src', 'assets', 'logo.png')
     log_file_path = os.path.join(base_dir, 'log.log')
     logger.info("[LOG_VIEWER] base_dir: %s", base_dir)
     logger.info("[LOG_VIEWER] log_file_path: %s", log_file_path)

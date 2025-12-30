@@ -162,7 +162,7 @@ class CoreCommandHandler:
         if not date_str:
             return {"success": False, "error": "Date is required (YYYY-MM-DD)"}
 
-        from salesbook import SalesBookGenerator
+        from src.salesbook import SalesBookGenerator
         from src.core.config_manager import get_config_path
 
         logger.info("IPC: Salesbook export requested for %s", date_str)

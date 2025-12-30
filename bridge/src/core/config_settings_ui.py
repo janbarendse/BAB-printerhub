@@ -143,9 +143,9 @@ class ConfigSettingsWindow:
         self.window.setMinimumSize(820, 600)
 
         base_dir = _resolve_base_dir()
-        icon_path = os.path.join(base_dir, "logo.png")
-        arrow_down_path = os.path.join(base_dir, "assets", "icons", "arrow_down.svg")
-        arrow_up_path = os.path.join(base_dir, "assets", "icons", "arrow_up.svg")
+        icon_path = os.path.join(base_dir, "src", "assets", "logo.png")
+        arrow_down_path = os.path.join(base_dir, "src", "assets", "icons", "arrow_down.svg")
+        arrow_up_path = os.path.join(base_dir, "src", "assets", "icons", "arrow_up.svg")
         if os.path.exists(icon_path):
             self.window.setWindowIcon(QIcon(icon_path))
 

@@ -71,7 +71,7 @@ def main():
         log_file_path = os.path.join(base_dir, 'log.log')
 
     # Load logo for favicon
-    icon_path = os.path.join(base_dir, 'logo.png')
+    icon_path = os.path.join(base_dir, 'src', 'assets', 'logo.png')
     logo_base64 = ""
     if os.path.exists(icon_path):
         try:

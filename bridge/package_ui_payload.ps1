@@ -10,6 +10,9 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $files = @(
     "src\\__init__.py",
     "src\\logger_module.py",
+    "src\\assets\\logo.png",
+    "src\\assets\\icons\\arrow_down.svg",
+    "src\\assets\\icons\\arrow_up.svg",
     "src\\core\\__init__.py",
     "src\\core\\ui_modal_runner.py",
     "src\\core\\ipc_client.py",

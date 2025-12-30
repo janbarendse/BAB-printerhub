@@ -432,7 +432,7 @@ class SystemTray:
         """
         try:
             # Load logo image
-            logo_path = os.path.join(RESOURCE_DIR, 'logo.png')
+            logo_path = os.path.join(RESOURCE_DIR, 'src', 'assets', 'logo.png')
             if not os.path.exists(logo_path):
                 logger.warning(f"Logo not found at {logo_path}, using default icon")
                 # Create a simple default icon if logo missing

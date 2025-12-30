@@ -54,8 +54,9 @@ py -3.13 -m nuitka ^
     --disable-ccache ^
     --output-dir="%OUT_DIR%" ^
     --output-filename="%APP_NAME%" ^
-    --include-data-file=assets\\icons\\arrow_down.svg=assets\\icons\\arrow_down.svg ^
-    --include-data-file=assets\\icons\\arrow_up.svg=assets\\icons\\arrow_up.svg ^
+    --include-data-file=src\\assets\\icons\\arrow_down.svg=src\\assets\\icons\\arrow_down.svg ^
+    --include-data-file=src\\assets\\icons\\arrow_up.svg=src\\assets\\icons\\arrow_up.svg ^
+    --include-data-file=src\\assets\\logo.png=src\\assets\\logo.png ^
     --include-module=clr ^
     --include-package=pythonnet ^
     src\fiscal_printer_hub.py
@@ -70,10 +71,10 @@ if exist "%DIST_DIR%\\%MODULE_NAME%.exe" (
     ren "%DIST_DIR%\\%MODULE_NAME%.exe" "%APP_NAME%.exe" >nul 2>&1
 )
 copy /Y config.json "%DIST_DIR%\config.json" >nul
-copy /Y logo.png "%DIST_DIR%\logo.png" >nul
-if not exist "%DIST_DIR%\\assets\\icons" mkdir "%DIST_DIR%\\assets\\icons"
-copy /Y assets\\icons\\arrow_down.svg "%DIST_DIR%\\assets\\icons\\arrow_down.svg" >nul
-copy /Y assets\\icons\\arrow_up.svg "%DIST_DIR%\\assets\\icons\\arrow_up.svg" >nul
+if not exist "%DIST_DIR%\\src\\assets\\icons" mkdir "%DIST_DIR%\\src\\assets\\icons"
+copy /Y src\\assets\\logo.png "%DIST_DIR%\\src\\assets\\logo.png" >nul
+copy /Y src\\assets\\icons\\arrow_down.svg "%DIST_DIR%\\src\\assets\\icons\\arrow_down.svg" >nul
+copy /Y src\\assets\\icons\\arrow_up.svg "%DIST_DIR%\\src\\assets\\icons\\arrow_up.svg" >nul
 powershell -ExecutionPolicy Bypass -Command "& '%~dp0package_ui_payload.ps1' -OutputDir '%DIST_DIR%' -IncludeRuntime $true"
 
 echo ============================================================
