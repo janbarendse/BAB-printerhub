@@ -54,8 +54,8 @@ py -3.13 -m nuitka ^
     --disable-ccache ^
     --output-dir="%OUT_DIR%" ^
     --output-filename="%APP_NAME%" ^
-    --include-data-file=arrow_down.svg=arrow_down.svg ^
-    --include-data-file=arrow_up.svg=arrow_up.svg ^
+    --include-data-file=assets\\icons\\arrow_down.svg=assets\\icons\\arrow_down.svg ^
+    --include-data-file=assets\\icons\\arrow_up.svg=assets\\icons\\arrow_up.svg ^
     --include-module=clr ^
     --include-package=pythonnet ^
     src\fiscal_printer_hub.py
@@ -71,8 +71,9 @@ if exist "%DIST_DIR%\\%MODULE_NAME%.exe" (
 )
 copy /Y config.json "%DIST_DIR%\config.json" >nul
 copy /Y logo.png "%DIST_DIR%\logo.png" >nul
-copy /Y arrow_down.svg "%DIST_DIR%\arrow_down.svg" >nul
-copy /Y arrow_up.svg "%DIST_DIR%\arrow_up.svg" >nul
+if not exist "%DIST_DIR%\\assets\\icons" mkdir "%DIST_DIR%\\assets\\icons"
+copy /Y assets\\icons\\arrow_down.svg "%DIST_DIR%\\assets\\icons\\arrow_down.svg" >nul
+copy /Y assets\\icons\\arrow_up.svg "%DIST_DIR%\\assets\\icons\\arrow_up.svg" >nul
 powershell -ExecutionPolicy Bypass -Command "& '%~dp0package_ui_payload.ps1' -OutputDir '%DIST_DIR%' -IncludeRuntime $true"
 
 echo ============================================================

@@ -144,8 +144,8 @@ class ConfigSettingsWindow:
 
         base_dir = _resolve_base_dir()
         icon_path = os.path.join(base_dir, "logo.png")
-        arrow_down_path = os.path.join(base_dir, "arrow_down.svg")
-        arrow_up_path = os.path.join(base_dir, "arrow_up.svg")
+        arrow_down_path = os.path.join(base_dir, "assets", "icons", "arrow_down.svg")
+        arrow_up_path = os.path.join(base_dir, "assets", "icons", "arrow_up.svg")
         if os.path.exists(icon_path):
             self.window.setWindowIcon(QIcon(icon_path))
 
