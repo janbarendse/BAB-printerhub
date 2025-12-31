@@ -337,8 +337,8 @@ class ConfigSettingsWindow:
             QGroupBox {
                 border: 1px solid #e5e7eb;
                 border-radius: 10px;
-                margin-top: 8px;
-                padding: 16px;
+                margin-top: 4px;
+                padding: 14px;
                 background: #ffffff;
             }
             QLabel#logo {
@@ -419,17 +419,18 @@ class ConfigSettingsWindow:
         self.window.setStyleSheet(style)
 
     def _build_general_section(self):
-        from PySide6.QtWidgets import QGroupBox, QFormLayout, QComboBox, QCheckBox
+        from PySide6.QtWidgets import QGroupBox, QFormLayout, QComboBox, QLineEdit, QCheckBox
 
         group = QGroupBox("")
         form = QFormLayout(group)
         self.software_active = QComboBox()
         self.software_active.addItems(["odoo", "tcpos", "simphony", "quickbooks"])
-        self.mode_combo = QComboBox()
-        self.mode_combo.addItems(["standalone", "cloud"])
+        self.mode_display = QLineEdit()
+        self.mode_display.setReadOnly(True)
+        self.mode_display.setObjectName("inputField")
 
         form.addRow("Active software", self.software_active)
-        form.addRow("Run mode", self.mode_combo)
+        form.addRow("Run mode", self.mode_display)
         return group
 
     def _build_printer_section(self):
@@ -512,7 +513,7 @@ class ConfigSettingsWindow:
         wrapper = QWidget()
         layout = QVBoxLayout(wrapper)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(4)
 
         label = QLabel(title)
         label.setObjectName("sectionTitle")
@@ -523,7 +524,7 @@ class ConfigSettingsWindow:
 
     def _load_config(self):
         self.software_active.setCurrentText(_get_nested(self.config, ["software", "active"], "tcpos"))
-        self.mode_combo.setCurrentText(self.config.get("mode", "standalone"))
+        self.mode_display.setText(self.config.get("mode", "portal"))
 
         self.printer_active.setCurrentText(_get_nested(self.config, ["printer", "active"], "cts310ii"))
         self._load_printer_details(self.printer_active.currentText())
@@ -570,7 +571,6 @@ class ConfigSettingsWindow:
                     "baud_rate": int(self.printer_baud_rate.value()),
                 },
             },
-            "mode": self.mode_combo.currentText(),
             "babportal": {
                 "enabled": self.babportal_enabled.isChecked(),
                 "url": self.babportal_url.text().strip(),
