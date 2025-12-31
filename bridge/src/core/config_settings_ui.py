@@ -197,11 +197,11 @@ class ConfigSettingsWindow:
         content_layout.setContentsMargins(20, 18, 20, 18)
         content_layout.setSpacing(16)
 
-        content_layout.addWidget(self._build_general_section())
-        content_layout.addWidget(self._build_printer_section())
-        content_layout.addWidget(self._build_babportal_section())
-        content_layout.addWidget(self._build_polling_section())
-        content_layout.addWidget(self._build_system_section())
+        content_layout.addWidget(self._build_section("General", self._build_general_section()))
+        content_layout.addWidget(self._build_section("Printer", self._build_printer_section()))
+        content_layout.addWidget(self._build_section("BABPortal", self._build_babportal_section()))
+        content_layout.addWidget(self._build_section("Polling", self._build_polling_section()))
+        content_layout.addWidget(self._build_section("System", self._build_system_section()))
         content_layout.addStretch(1)
 
         scroll.setWidget(content)
@@ -275,6 +275,13 @@ class ConfigSettingsWindow:
                 padding: 0;
                 line-height: 12px;
             }
+            QLabel#sectionTitle {
+                font-size: 16px;
+                font-weight: 700;
+                color: #111827;
+                padding-left: 2px;
+                margin: 0;
+            }
             QComboBox, QSpinBox {
                 padding-right: 24px;
                 font-size: 18px;
@@ -330,8 +337,8 @@ class ConfigSettingsWindow:
             QGroupBox {
                 border: 1px solid #e5e7eb;
                 border-radius: 10px;
-                margin-top: 16px;
-                padding: 18px;
+                margin-top: 8px;
+                padding: 16px;
                 background: #ffffff;
             }
             QLabel#logo {
@@ -340,13 +347,9 @@ class ConfigSettingsWindow:
                 padding: 6px;
             }
             QGroupBox::title {
-                subcontrol-origin: padding;
-                subcontrol-position: top left;
-                left: 12px;
-                top: 10px;
-                padding: 0 6px;
-                color: #111827;
-                font-weight: 700;
+                padding: 0;
+                margin: 0;
+                height: 0px;
             }
             QCheckBox {
                 color: #111827;
@@ -418,7 +421,7 @@ class ConfigSettingsWindow:
     def _build_general_section(self):
         from PySide6.QtWidgets import QGroupBox, QFormLayout, QComboBox, QCheckBox
 
-        group = QGroupBox("General")
+        group = QGroupBox("")
         form = QFormLayout(group)
         self.software_active = QComboBox()
         self.software_active.addItems(["odoo", "tcpos", "simphony", "quickbooks"])
@@ -432,7 +435,7 @@ class ConfigSettingsWindow:
     def _build_printer_section(self):
         from PySide6.QtWidgets import QGroupBox, QFormLayout, QComboBox, QLineEdit, QSpinBox
 
-        printer_group = QGroupBox("Printer")
+        printer_group = QGroupBox("")
         printer_form = QFormLayout(printer_group)
         self.printer_active = QComboBox()
         self.printer_active.addItems(["cts310ii", "star", "citizen", "epson"])
@@ -452,7 +455,7 @@ class ConfigSettingsWindow:
     def _build_babportal_section(self):
         from PySide6.QtWidgets import QGroupBox, QFormLayout, QLineEdit, QSpinBox, QCheckBox
 
-        group = QGroupBox("BABPortal")
+        group = QGroupBox("")
         form = QFormLayout(group)
 
         self.babportal_enabled = QCheckBox("Enabled")
@@ -478,7 +481,7 @@ class ConfigSettingsWindow:
     def _build_polling_section(self):
         from PySide6.QtWidgets import QGroupBox, QFormLayout, QSpinBox
 
-        group = QGroupBox("Polling")
+        group = QGroupBox("")
         form = QFormLayout(group)
         self.poll_printer_retry = QSpinBox()
         self.poll_printer_retry.setRange(1, 300)
@@ -493,7 +496,7 @@ class ConfigSettingsWindow:
     def _build_system_section(self):
         from PySide6.QtWidgets import QGroupBox, QFormLayout, QComboBox, QCheckBox
 
-        group = QGroupBox("System")
+        group = QGroupBox("")
         form = QFormLayout(group)
         self.system_log_level = QComboBox()
         self.system_log_level.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
@@ -502,6 +505,21 @@ class ConfigSettingsWindow:
         form.addRow("", self.system_demo_mode)
 
         return group
+
+    def _build_section(self, title, widget):
+        from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
+
+        wrapper = QWidget()
+        layout = QVBoxLayout(wrapper)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        label = QLabel(title)
+        label.setObjectName("sectionTitle")
+        layout.addWidget(label)
+        layout.addWidget(widget)
+
+        return wrapper
 
     def _load_config(self):
         self.software_active.setCurrentText(_get_nested(self.config, ["software", "active"], "tcpos"))

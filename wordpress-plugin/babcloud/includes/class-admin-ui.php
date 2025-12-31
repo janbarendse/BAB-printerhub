@@ -97,6 +97,15 @@ class BABCloud_Admin_UI {
             'side',
             'high'
         );
+
+        add_meta_box(
+            'printer_licensing_help',
+            __('Licensing Notes', 'babcloud'),
+            array(__CLASS__, 'printer_licensing_help_metabox'),
+            'printer',
+            'side',
+            'default'
+        );
     }
 
     /**
@@ -298,19 +307,6 @@ class BABCloud_Admin_UI {
         // Check if token exists
         $existing_token = get_post_meta($post_id, 'device_token_hash', true);
 
-        // If a raw device token is entered via Voxel fields, hash it for auth.
-        $raw_token = get_post_meta($post_id, 'device_token', true);
-        if (is_string($raw_token)) {
-            $raw_token = trim($raw_token);
-        }
-        if (!empty($raw_token)) {
-            update_post_meta($post_id, 'device_token_hash', hash('sha256', $raw_token));
-            update_post_meta($post_id, 'token_generated_at', current_time('mysql'));
-            set_transient('babcloud_new_token_' . $post_id, $raw_token, 300);
-            delete_post_meta($post_id, 'device_token');
-            $existing_token = get_post_meta($post_id, 'device_token_hash', true);
-        }
-
         // Generate token if:
         // 1. No token exists (first save)
         // 2. Regenerate button was clicked
@@ -326,6 +322,28 @@ class BABCloud_Admin_UI {
         }
 
         self::normalize_device_id($post_id);
+    }
+
+    /**
+     * Licensing help meta box (for Voxel fields).
+     */
+    public static function printer_licensing_help_metabox($post) {
+        ?>
+        <div style="padding: 10px;">
+            <p><strong><?php _e('License Valid', 'babcloud'); ?></strong><br>
+                <small><?php _e('Indicates the current license is valid (not expired). The bridge will block local-only commands when this is false.', 'babcloud'); ?></small>
+            </p>
+            <p><strong><?php _e('Subscription Active', 'babcloud'); ?></strong><br>
+                <small><?php _e('Reflects whether the printer subscription is active (printer post is Published). Unpublished = inactive.', 'babcloud'); ?></small>
+            </p>
+            <p><strong><?php _e('Cloud only', 'babcloud'); ?></strong><br>
+                <small><?php _e('When enabled, fiscal tools must use cloud commands. Local fallback is allowed only during grace.', 'babcloud'); ?></small>
+            </p>
+            <p><strong><?php _e('Cloud Grace Hours', 'babcloud'); ?></strong><br>
+                <small><?php _e('Number of hours to allow local fallback if the portal is unreachable. Default is 72.', 'babcloud'); ?></small>
+            </p>
+        </div>
+        <?php
     }
 
     /**
