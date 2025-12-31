@@ -69,10 +69,6 @@ def _get_nested(config, path, default=None):
 def _validate_changes(changes):
     errors = []
 
-    if "mode" in changes:
-        if changes["mode"] not in ["standalone", "cloud"]:
-            errors.append("Mode must be 'standalone' or 'cloud'")
-
     if "software" in changes and "active" in changes["software"]:
         valid_software = ["odoo", "tcpos", "simphony", "quickbooks"]
         if changes["software"]["active"] not in valid_software:
@@ -524,7 +520,15 @@ class ConfigSettingsWindow:
 
     def _load_config(self):
         self.software_active.setCurrentText(_get_nested(self.config, ["software", "active"], "tcpos"))
-        self.mode_display.setText(self.config.get("mode", "portal"))
+        portal_cfg = self.config.get("babportal", {})
+        operation_mode = portal_cfg.get("operation_mode")
+        last_sync = portal_cfg.get("last_portal_sync")
+        if portal_cfg.get("enabled", False) and not last_sync:
+            self.mode_display.setText("pending (portal)")
+        elif operation_mode:
+            self.mode_display.setText(str(operation_mode))
+        else:
+            self.mode_display.setText("unknown")
 
         self.printer_active.setCurrentText(_get_nested(self.config, ["printer", "active"], "cts310ii"))
         self._load_printer_details(self.printer_active.currentText())
@@ -599,7 +603,6 @@ class ConfigSettingsWindow:
 
         try:
             updated = json.loads(json.dumps(self.config))
-            updated["mode"] = changes["mode"]
 
             for section in ["software", "printer", "client", "miscellaneous", "polling", "babportal", "system"]:
                 if section not in changes:

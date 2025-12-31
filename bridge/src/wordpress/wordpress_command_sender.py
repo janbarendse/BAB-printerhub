@@ -90,10 +90,13 @@ class WordPressCommandSender:
                     logger.error(f"  Response: {error_data}")
                 except:
                     logger.error(f"  Response text: {response.text}")
+                error_code = "http_error"
+                if response.status_code >= 500 or response.status_code == 405:
+                    error_code = "connection_error"
                 return {
                     "success": False,
                     "error": f"Failed to queue command: {response.status_code}",
-                    "error_code": "http_error",
+                    "error_code": error_code,
                     "status_code": response.status_code,
                 }
         except Exception as e:

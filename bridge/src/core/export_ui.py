@@ -259,8 +259,8 @@ class ExportWindow(QtCore.QObject):
         self.year_select.setRange(2000, 2100)
         self.year_select.setValue(datetime.date.today().year)
 
-        month_row_layout.addWidget(self.month_select, 1)
-        month_row_layout.addWidget(self.year_select, 0)
+        month_row_layout.addWidget(self.month_select, 2)
+        month_row_layout.addWidget(self.year_select, 1)
 
         month_btn = QPushButton("Export Month")
         month_btn.setObjectName("primaryButtonWide")

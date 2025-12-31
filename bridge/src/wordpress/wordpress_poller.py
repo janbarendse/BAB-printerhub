@@ -16,7 +16,12 @@ import threading
 # Disable SSL warnings for self-signed certificates
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-logger = logging.getLogger(__name__)
+try:
+    from src.logger_module import logger as app_logger
+except Exception:
+    app_logger = None
+
+logger = app_logger if app_logger else logging.getLogger(__name__)
 
 # Import version info
 import os
@@ -466,6 +471,7 @@ class BABPortalPoller:
 
             if response.status_code == 200:
                 data = response.json()
+                logger.info("Heartbeat response: %s", data)
                 try:
                     from src.core.config_manager import save_config
                     import datetime as dt
@@ -475,14 +481,17 @@ class BABPortalPoller:
                         babportal_cfg['license_valid'] = bool(data.get('license_valid'))
                     if 'subscription_active' in data:
                         babportal_cfg['subscription_active'] = bool(data.get('subscription_active'))
-                    if 'cloud_only' in data:
-                        babportal_cfg['cloud_only'] = bool(data.get('cloud_only'))
+                    if 'operation_mode' in data:
+                        babportal_cfg['operation_mode'] = str(data.get('operation_mode'))
                     if 'cloud_grace_hours' in data:
                         try:
                             babportal_cfg['cloud_grace_hours'] = int(data.get('cloud_grace_hours'))
                         except (TypeError, ValueError):
                             pass
+                    if 'mode' in data:
+                        babportal_cfg['mode'] = str(data.get('mode'))
                     babportal_cfg['last_license_check'] = dt.datetime.now().isoformat()
+                    babportal_cfg['last_portal_sync'] = dt.datetime.now().isoformat()
                     save_config(self.config)
                 except Exception as exc:
                     logger.warning(f"Failed updating cloud policy from heartbeat: {exc}")

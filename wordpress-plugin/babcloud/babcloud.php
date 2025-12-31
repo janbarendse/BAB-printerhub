@@ -3,7 +3,7 @@
  * Plugin Name: BAB Cloud PrintHub
  * Plugin URI: https://babcloud.linux
  * Description: WordPress plugin for managing fiscal printers with REST API integration for BAB PrintHub devices
- * Version: 2.0.0
+ * Version: 1.5.2
  * Author: BAB Cloud
  * Author URI: https://babcloud.linux
  * License: GPL v2 or later

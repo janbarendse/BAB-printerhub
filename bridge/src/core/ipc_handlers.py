@@ -30,12 +30,15 @@ class CoreCommandHandler:
 
     def _cloud_mode_enabled(self) -> bool:
         return (
-            self.config.get("mode") == "cloud"
+            self._operation_mode() in ("cloud_only", "hybrid")
             and self.config.get("babportal", {}).get("enabled", False)
         )
 
+    def _operation_mode(self) -> str | None:
+        return self.config.get("babportal", {}).get("operation_mode")
+
     def _cloud_policy_enabled(self) -> bool:
-        return bool(self.config.get("babportal", {}).get("cloud_only", False))
+        return self._operation_mode() == "cloud_only"
 
     def _demo_mode(self) -> bool:
         return bool(self.config.get("system", {}).get("demo_mode", False))
@@ -52,6 +55,14 @@ class CoreCommandHandler:
 
     def _license_error(self) -> Dict[str, Any]:
         return {"success": False, "error": "License inactive or expired"}
+
+    def _portal_sync_required(self) -> bool:
+        if not self.config.get("babportal", {}).get("enabled", False):
+            return False
+        return not self.config.get("babportal", {}).get("last_portal_sync")
+
+    def _portal_sync_error(self) -> Dict[str, Any]:
+        return {"success": False, "error": "Portal sync required. Connect to BABPortal once to continue."}
 
     def _cloud_grace_hours(self) -> int:
         try:
@@ -72,10 +83,10 @@ class CoreCommandHandler:
     def _should_use_cloud(self) -> bool:
         if self._demo_mode():
             return False
-        return self._cloud_mode_enabled() or self._cloud_policy_enabled()
+        return self._operation_mode() in ("cloud_only", "hybrid")
 
     def _should_fallback_to_local(self, result: Dict[str, Any]) -> bool:
-        if not self._cloud_policy_enabled():
+        if self._operation_mode() != "hybrid":
             return False
         if not self._within_cloud_grace():
             return False
@@ -158,6 +169,8 @@ class CoreCommandHandler:
         return {"success": False, "error": f"Unknown salesbook action: {action}"}
 
     def _export_salesbook_daily(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if self._portal_sync_required():
+            return self._portal_sync_error()
         date_str = payload.get("date")
         if not date_str:
             return {"success": False, "error": "Date is required (YYYY-MM-DD)"}
@@ -180,6 +193,8 @@ class CoreCommandHandler:
 
     def _print_x_report(self) -> Dict[str, Any]:
         logger.info("IPC: X-Report requested")
+        if self._portal_sync_required():
+            return self._portal_sync_error()
         if not self._license_allows_action():
             return self._license_error()
         if self._should_use_cloud():
@@ -201,6 +216,8 @@ class CoreCommandHandler:
 
     def _print_z_report(self) -> Dict[str, Any]:
         logger.info("IPC: Z-Report requested")
+        if self._portal_sync_required():
+            return self._portal_sync_error()
         if not self._license_allows_action():
             return self._license_error()
         if self._should_use_cloud():
@@ -237,6 +254,8 @@ class CoreCommandHandler:
             return {"success": False, "error": "Start and end dates are required"}
 
         logger.info("IPC: Z-Report by date %s -> %s", start_date, end_date)
+        if self._portal_sync_required():
+            return self._portal_sync_error()
         if not self._license_allows_action():
             return self._license_error()
         if self._should_use_cloud():
@@ -264,6 +283,8 @@ class CoreCommandHandler:
             return {"success": False, "error": "Report number is required"}
 
         logger.info("IPC: Z-Report by number %s", number)
+        if self._portal_sync_required():
+            return self._portal_sync_error()
         if not self._license_allows_action():
             return self._license_error()
         response = self.printer.print_z_report_by_number(int(number))
@@ -283,6 +304,8 @@ class CoreCommandHandler:
             return {"success": False, "error": "Start number must be less than or equal to end number"}
 
         logger.info("IPC: Z-Report range %s -> %s", start_num, end_num)
+        if self._portal_sync_required():
+            return self._portal_sync_error()
         if not self._license_allows_action():
             return self._license_error()
         if self._should_use_cloud():
@@ -308,6 +331,8 @@ class CoreCommandHandler:
             return {"success": False, "error": "Document number is required"}
 
         logger.info("IPC: Reprint document %s", document_number)
+        if self._portal_sync_required():
+            return self._portal_sync_error()
         if not self._license_allows_action():
             return self._license_error()
         if self._should_use_cloud():
@@ -330,6 +355,8 @@ class CoreCommandHandler:
     def _print_no_sale(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         reason = payload.get("reason", "")
         logger.info("IPC: No Sale requested")
+        if self._portal_sync_required():
+            return self._portal_sync_error()
         if not self._license_allows_action():
             return self._license_error()
         if self._should_use_cloud():

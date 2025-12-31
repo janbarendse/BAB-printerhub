@@ -353,7 +353,15 @@ class BABCloud_REST_API {
         update_post_meta($printer->ID, 'license_valid', $license_valid ? '1' : '0');
         update_post_meta($printer->ID, 'subscription_active', $subscription_active ? '1' : '0');
 
-        $cloud_only = get_post_meta($printer->ID, 'cloud_only', true);
+        $operation_mode = get_post_meta($printer->ID, 'operation-mode', true);
+        if (is_array($operation_mode)) {
+            $operation_mode = reset($operation_mode);
+        }
+        $operation_mode = strtolower(trim((string) $operation_mode));
+        $operation_mode = str_replace(' ', '_', $operation_mode);
+        if (!in_array($operation_mode, array('cloud_only', 'hybrid', 'local'), true)) {
+            $operation_mode = 'hybrid';
+        }
         $cloud_grace_hours = get_post_meta($printer->ID, 'cloud_grace_hours', true);
         if ($cloud_grace_hours === '' || $cloud_grace_hours === null) {
             $cloud_grace_hours = 72;
@@ -365,8 +373,8 @@ class BABCloud_REST_API {
             'license_expiry' => $license_expiry,
             'days_remaining' => $days_remaining,
             'subscription_active' => $subscription_active,
-            'cloud_only' => $cloud_only === '1',
             'cloud_grace_hours' => intval($cloud_grace_hours),
+            'operation_mode' => $operation_mode,
         ), 200);
     }
 
@@ -380,7 +388,15 @@ class BABCloud_REST_API {
         $license_valid = true;
         $days_remaining = null;
         $subscription_active = ($printer->post_status === 'publish');
-        $cloud_only = get_post_meta($printer->ID, 'cloud_only', true);
+        $operation_mode = get_post_meta($printer->ID, 'operation-mode', true);
+        if (is_array($operation_mode)) {
+            $operation_mode = reset($operation_mode);
+        }
+        $operation_mode = strtolower(trim((string) $operation_mode));
+        $operation_mode = str_replace(' ', '_', $operation_mode);
+        if (!in_array($operation_mode, array('cloud_only', 'hybrid', 'local'), true)) {
+            $operation_mode = 'hybrid';
+        }
         $cloud_grace_hours = get_post_meta($printer->ID, 'cloud_grace_hours', true);
         if ($cloud_grace_hours === '' || $cloud_grace_hours === null) {
             $cloud_grace_hours = 72;
@@ -407,8 +423,8 @@ class BABCloud_REST_API {
             'expiry' => $license_expiry,
             'days_remaining' => $days_remaining,
             'subscription_active' => $subscription_active,
-            'cloud_only' => $cloud_only === '1',
             'cloud_grace_hours' => intval($cloud_grace_hours),
+            'operation_mode' => $operation_mode,
         ), 200);
     }
 

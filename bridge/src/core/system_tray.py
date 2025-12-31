@@ -76,7 +76,10 @@ class SystemTray:
                 self.wp_sender = None
 
     def _cloud_mode_enabled(self) -> bool:
-        return self.config.get('mode') == 'cloud' and self.config.get('babportal', {}).get('enabled', False)
+        return self._operation_mode() in ('cloud_only', 'hybrid') and self.config.get('babportal', {}).get('enabled', False)
+
+    def _operation_mode(self) -> str | None:
+        return self.config.get('babportal', {}).get('operation_mode')
 
     def _demo_mode(self) -> bool:
         return bool(self.config.get('system', {}).get('demo_mode', False))
@@ -84,6 +87,8 @@ class SystemTray:
     def _license_allows_action(self) -> bool:
         if self._demo_mode():
             return True
+        if self._portal_sync_required():
+            return False
         last_check = self.config.get('babportal', {}).get('last_license_check')
         license_valid = self.config.get('babportal', {}).get('license_valid', True)
         subscription_active = self.config.get('babportal', {}).get('subscription_active', True)
@@ -92,7 +97,7 @@ class SystemTray:
         return bool(license_valid) and bool(subscription_active)
 
     def _cloud_policy_enabled(self) -> bool:
-        return bool(self.config.get('babportal', {}).get('cloud_only', False))
+        return self._operation_mode() == 'cloud_only'
 
     def _cloud_grace_hours(self) -> int:
         try:
@@ -124,7 +129,7 @@ class SystemTray:
         remaining_hours = max(0, math.ceil(remaining.total_seconds() / 3600))
         return remaining_hours
 
-    def _portal_unreachable_over_hours(self, hours: int) -> bool:
+    def _portal_unreachable_over_minutes(self, minutes: int) -> bool:
         last_check = self.config.get('babportal', {}).get('last_license_check')
         if not last_check:
             return False
@@ -132,15 +137,20 @@ class SystemTray:
             last_dt = datetime.datetime.fromisoformat(last_check)
         except Exception:
             return False
-        return (datetime.datetime.now() - last_dt) >= datetime.timedelta(hours=hours)
+        return (datetime.datetime.now() - last_dt) >= datetime.timedelta(minutes=minutes)
+
+    def _portal_sync_required(self) -> bool:
+        if not self.config.get('babportal', {}).get('enabled', False):
+            return False
+        return not self.config.get('babportal', {}).get('last_portal_sync')
 
     def _should_use_cloud(self) -> bool:
         if self._demo_mode():
             return False
-        return self._cloud_mode_enabled() or self._cloud_policy_enabled()
+        return self._operation_mode() in ('cloud_only', 'hybrid')
 
     def _should_fallback_to_local(self, result) -> bool:
-        if not self._cloud_policy_enabled():
+        if self._operation_mode() != 'hybrid':
             return False
         if not self._within_cloud_grace():
             return False
@@ -166,6 +176,9 @@ class SystemTray:
         """Print X report from system tray."""
         try:
             logger.info("X-Report triggered from system tray")
+            if self._portal_sync_required():
+                logger.warning("X-Report blocked: portal sync required")
+                return
             if not self._license_allows_action():
                 logger.warning("X-Report blocked: license inactive or expired")
                 return
@@ -192,6 +205,9 @@ class SystemTray:
         """Print Z report from system tray."""
         try:
             logger.info("Z-Report triggered from system tray")
+            if self._portal_sync_required():
+                logger.warning("Z-Report blocked: portal sync required")
+                return
             if not self._license_allows_action():
                 logger.warning("Z-Report blocked: license inactive or expired")
                 return
@@ -229,6 +245,9 @@ class SystemTray:
         """Print NO SALE receipt from system tray."""
         try:
             logger.info("NO SALE triggered from system tray")
+            if self._portal_sync_required():
+                logger.warning("NO SALE blocked: portal sync required")
+                return
             if not self._license_allows_action():
                 logger.warning("NO SALE blocked: license inactive or expired")
                 return
@@ -409,9 +428,9 @@ class SystemTray:
             remaining_hours = self._grace_remaining_hours()
             items.append(item(f'Demo mode (Grace {remaining_hours}h)', None, enabled=False))
         elif (
-            self._cloud_policy_enabled()
+            self._operation_mode() == 'hybrid'
             and self._within_cloud_grace()
-            and self._portal_unreachable_over_hours(1)
+            and self._portal_unreachable_over_minutes(15)
         ):
             remaining_hours = self._grace_remaining_hours()
             items.append(item(f'App in Grace mode ({remaining_hours}h left)', None, enabled=False))

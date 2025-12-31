@@ -144,29 +144,25 @@ def main():
     ui_launcher = UIModalLauncher(pipe_name, auth_key)
 
     # =========================================================================
-    # Step 5: Start BABPortal Poller (Cloud Mode Only)
+    # Step 5: Start BABPortal Poller
     # =========================================================================
     logger.info("[5/7] Checking BABPortal configuration...")
-    app_mode = config.get('mode', 'local')
     babportal_enabled = config.get('babportal', {}).get('enabled', False)
 
     babportal_thread = None
-    if app_mode == 'cloud' and babportal_enabled:
-        logger.info(f"  Mode: cloud - BABPortal polling enabled")
+    if babportal_enabled:
+        logger.info("  BABPortal polling enabled")
         try:
             from src.wordpress.wordpress_poller import start_babportal_poller
             babportal_thread = start_babportal_poller(config, printer)
-            logger.info("  ✓ BABPortal poller started")
+            logger.info("  OK BABPortal poller started")
         except Exception as e:
-            logger.warning(f"  ✗ BABPortal poller failed: {e}")
+            logger.warning(f"  ? BABPortal poller failed: {e}")
             # Continue - BABPortal is optional
     else:
-        if app_mode == 'local':
-            logger.info(f"  Mode: local - BABPortal polling disabled")
-        else:
-            logger.info(f"  BABPortal polling: disabled")
+        logger.info("  BABPortal polling: disabled")
 
-    # =========================================================================
+# =========================================================================
     # Step 6: Start System Tray Icon
     # =========================================================================
     logger.info("[6/7] Starting system tray...")
