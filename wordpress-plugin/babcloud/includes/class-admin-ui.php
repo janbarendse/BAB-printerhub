@@ -24,7 +24,7 @@ class BABCloud_Admin_UI {
         add_action('save_post_printer', array(__CLASS__, 'save_token_meta'), 10, 2);
         add_filter('manage_printer_posts_columns', array(__CLASS__, 'custom_columns'));
         add_action('manage_printer_posts_custom_column', array(__CLASS__, 'custom_column_content'), 10, 2);
-        add_action('admin_notices', array(__CLASS__, 'display_token_notice'));
+        // Show the raw token in the metabox only (single-use).
     }
 
     /**
@@ -297,6 +297,19 @@ class BABCloud_Admin_UI {
 
         // Check if token exists
         $existing_token = get_post_meta($post_id, 'device_token_hash', true);
+
+        // If a raw device token is entered via Voxel fields, hash it for auth.
+        $raw_token = get_post_meta($post_id, 'device_token', true);
+        if (is_string($raw_token)) {
+            $raw_token = trim($raw_token);
+        }
+        if (!empty($raw_token)) {
+            update_post_meta($post_id, 'device_token_hash', hash('sha256', $raw_token));
+            update_post_meta($post_id, 'token_generated_at', current_time('mysql'));
+            set_transient('babcloud_new_token_' . $post_id, $raw_token, 300);
+            delete_post_meta($post_id, 'device_token');
+            $existing_token = get_post_meta($post_id, 'device_token_hash', true);
+        }
 
         // Generate token if:
         // 1. No token exists (first save)
