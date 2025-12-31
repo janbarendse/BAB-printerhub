@@ -81,13 +81,13 @@
     "enabled": true,
     "url": "https://babcloud.linux",
     "poll_interval": 3,
-    "device_id": "chichi-stjoris-printer-1",
-    "device_token": "3d2e8382b7a33e8d43c04b786327b7c72f5cdf9b3353b662af03e69afb94473d",
+    "device_id": "chichi-printer-1",
+    "device_token": "ace04a5c4fc606f31ecef338c4cf5ff1f321c00aa0768d42b103bf1dbc016c66",
     "api_version": "v1",
     "wordpress_username": "Chichi",
     "wordpress_app_password": "Vegm a5Vv oGjX Eobd vvZU A9HJ",
     "encrypted_app_password": false,
-    "last_license_check": "2025-12-30T01:17:13.655595",
+    "last_license_check": "2025-12-30T23:58:44.558380",
     "cloud_only": false,
     "cloud_grace_hours": 72,
     "license_valid": true,
@@ -116,8 +116,8 @@
   },
   "system": {
     "single_instance": true,
-    "log_level": "INFO",
+    "log_level": "DEBUG",
     "log_file": "log.log",
-    "demo_mode": true
+    "demo_mode": false
   }
 }
