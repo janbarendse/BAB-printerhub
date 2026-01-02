@@ -273,8 +273,7 @@ class SystemTray:
     def _open_log_window(self):
         """Open log viewer window."""
         try:
-            logger.info("Log window requested from system tray")
-            self.modal_queue.put('open_log_window')
+            logger.info("Log window requested from system tray (disabled in build)")
         except Exception as e:
             logger.error(f"Error signaling log window: {e}")
 
@@ -419,7 +418,7 @@ class SystemTray:
             item('Print X-Report', self._print_x_report),
             item('Print Z-Report', self._print_z_report),
             menu.SEPARATOR,
-            item('View Logs', self._open_log_window),
+            # Log viewer disabled (pywebview removed to reduce build size)
             item('Settings', self._open_settings),
             menu.SEPARATOR,
         ]

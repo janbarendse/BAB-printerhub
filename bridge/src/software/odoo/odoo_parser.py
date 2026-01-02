@@ -9,19 +9,30 @@ from logger_module import logger
 from core.text_utils import wrap_text_to_lines, distribute_text_bottom_up
 
 
-if getattr(sys, 'frozen', False):
-    base_dir = os.path.dirname(sys.executable)
-elif __file__:
-    # Go up 4 levels from bridge/src/software/odoo/ to bridge/
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+def _resolve_base_dir():
+    env_base = os.environ.get("BAB_UI_BASE")
+    if env_base:
+        return env_base
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    if __file__:
+        # Go up 4 levels from bridge/src/software/odoo/ to bridge/
+        return os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    return os.getcwd()
+
+
+base_dir = _resolve_base_dir()
 
 
 def load_config():
-    with open(os.path.join(base_dir, 'config.json')) as json_file:
+    config_path = os.path.join(base_dir, 'config.json')
+    if not os.path.exists(config_path):
+        dist_dir = os.path.join(base_dir, 'fiscal_printer_hub.dist')
+        dist_path = os.path.join(dist_dir, 'config.json')
+        if os.path.exists(dist_path):
+            config_path = dist_path
+    with open(config_path) as json_file:
         return json.load(json_file)
-
-
-config = load_config()
 
 
 tax_ids = {

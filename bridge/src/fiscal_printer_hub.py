@@ -205,13 +205,6 @@ def main():
                     except Exception as e:
                         logger.error(f"Error opening export modal: {e}")
 
-                elif command == 'open_log_window':
-                    logger.info("Opening log viewer window...")
-                    try:
-                        ui_launcher.launch("log_viewer")
-                    except Exception as e:
-                        logger.error(f"Error opening log viewer: {e}")
-
                 elif command == 'open_settings':
                     logger.info("Opening settings window...")
                     try:
@@ -306,11 +299,7 @@ def run_modal_standalone(modal_name):
         config = load_config(config_path)
         logger.info(f"[MODAL SUBPROCESS] Config loaded successfully")
 
-        if modal_name == 'log_viewer':
-            logger.info(f"[MODAL SUBPROCESS] Launching log_viewer...")
-            from src.core.log_viewer import _run_log_viewer_standalone
-            _run_log_viewer_standalone(config)
-        elif modal_name == 'fiscal_tools':
+        if modal_name == 'fiscal_tools':
             logger.info(f"[MODAL SUBPROCESS] Launching fiscal_tools...")
             from src.core.fiscal_ui import _open_fiscal_tools_modal_original
             _open_fiscal_tools_modal_original(config)

@@ -65,12 +65,6 @@ def main() -> int:
         config_settings_ui._open_config_settings_window(config_path, config)
         return 0
 
-    if modal_arg == "log_viewer":
-        from src.core import log_viewer
-
-        log_viewer._run_log_viewer_standalone(config)
-        return 0
-
     logger.error("Unknown modal: %s", modal_arg)
     return 1
 

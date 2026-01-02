@@ -6,7 +6,7 @@ REM ============================================================
 setlocal
 cd /d "%~dp0"
 
-set "APP_VERSION=1.5.1"
+set "APP_VERSION=1.5.2"
 set "APP_NAME=BAB-PrintHub-v%APP_VERSION%"
 set "BUILD_TAG=%RANDOM%%RANDOM%"
 set "MODULE_NAME=fiscal_printer_hub"
@@ -52,6 +52,9 @@ py -3.13 -m nuitka ^
     --enable-plugin=pyside6 ^
     --assume-yes-for-downloads ^
     --disable-ccache ^
+    --nofollow-import-to=tkinter,matplotlib,numpy,scipy,pandas,pytest,PyQt5,PyQt6,wx,webview,pywebview ^
+    --noinclude-qt-plugins=all ^
+    --include-qt-plugins=platforms,styles,iconengines,imageformats ^
     --output-dir="%OUT_DIR%" ^
     --output-filename="%APP_NAME%" ^
     --include-data-file=src\\assets\\icons\\arrow_down.svg=src\\assets\\icons\\arrow_down.svg ^
@@ -71,6 +74,7 @@ if exist "%DIST_DIR%\\%MODULE_NAME%.exe" (
     ren "%DIST_DIR%\\%MODULE_NAME%.exe" "%APP_NAME%.exe" >nul 2>&1
 )
 copy /Y config.json "%DIST_DIR%\config.json" >nul
+copy /Y config.json "%OUT_DIR%\config.json" >nul
 if not exist "%DIST_DIR%\\src\\assets\\icons" mkdir "%DIST_DIR%\\src\\assets\\icons"
 copy /Y src\\assets\\logo.png "%DIST_DIR%\\src\\assets\\logo.png" >nul
 copy /Y src\\assets\\icons\\arrow_down.svg "%DIST_DIR%\\src\\assets\\icons\\arrow_down.svg" >nul
