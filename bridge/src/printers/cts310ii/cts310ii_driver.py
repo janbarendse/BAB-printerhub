@@ -1031,6 +1031,7 @@ class CTS310iiDriver(BasePrinter):
         general_comment: str = "",
         is_refund: bool = False,
         receipt_number: Optional[str] = None,
+        sequential_order_id: Optional[str] = None,
         pos_name: Optional[str] = None,
         customer_name: Optional[str] = None,
         customer_crib: Optional[str] = None
@@ -1047,6 +1048,9 @@ class CTS310iiDriver(BasePrinter):
             discount: Transaction-level discount
             surcharge: Transaction-level surcharge
             general_comment: Footer comment
+            is_refund: True if refund/credit note
+            receipt_number: Display receipt number
+            sequential_order_id: Sequential order ID from config
             is_refund: True if refund/credit note
             receipt_number: Display receipt number
             pos_name: POS terminal name
@@ -1222,6 +1226,8 @@ class CTS310iiDriver(BasePrinter):
 
             if receipt_number:
                 self._add_comment(f"Receipt ID: {receipt_number}")
+            if sequential_order_id:
+                self._add_comment(f"Order ID: {sequential_order_id}")
             if pos_name:
                 # Display as "Operator: 1701" if operator code, otherwise "POS: [name]"
                 if pos_name.startswith("Operator:"):

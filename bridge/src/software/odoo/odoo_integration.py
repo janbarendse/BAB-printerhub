@@ -218,6 +218,7 @@ class OdooIntegration(BaseSoftware):
                 'customer_name': customer_name,
                 'customer_crib': customer_crib,
                 'receipt_number': raw_data.get('receipt_number'),
+                'sequential_order_id': raw_data.get('sequential_order_id'),
                 'pos_name': raw_data.get('pos_name')
             }
 
@@ -526,6 +527,7 @@ class OdooIntegration(BaseSoftware):
                 "tips": [],
                 "order_id": str(order['id']),
                 "receipt_number": order['pos_reference'],
+                "sequential_order_id": str(order['id']),  # Sequential order ID from config (last_order_id)
                 "pos_id": order['config_id'][0] if order['config_id'] else None,
                 "pos_name": order['config_id'][1] if order['config_id'] else "Unknown POS",
                 "order_note": order_note,
@@ -599,6 +601,7 @@ class OdooIntegration(BaseSoftware):
                 general_comment=parsed_data.get('general_comment', ''),
                 is_refund=parsed_data.get('is_refund', False),
                 receipt_number=parsed_data.get('receipt_number'),
+                sequential_order_id=parsed_data.get('sequential_order_id'),
                 pos_name=parsed_data.get('pos_name'),
                 customer_name=parsed_data.get('customer_name'),
                 customer_crib=parsed_data.get('customer_crib')

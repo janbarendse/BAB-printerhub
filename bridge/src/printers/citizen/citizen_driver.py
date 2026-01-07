@@ -1036,6 +1036,7 @@ class CitizenDriver(BasePrinter):
         general_comment: str = "",
         is_refund: bool = False,
         receipt_number: Optional[str] = None,
+        sequential_order_id: Optional[str] = None,
         pos_name: Optional[str] = None,
         customer_name: Optional[str] = None,
         customer_crib: Optional[str] = None

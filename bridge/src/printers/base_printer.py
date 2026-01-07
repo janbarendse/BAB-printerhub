@@ -62,6 +62,7 @@ class BasePrinter(ABC):
         general_comment: str = "",
         is_refund: bool = False,
         receipt_number: Optional[str] = None,
+        sequential_order_id: Optional[str] = None,
         pos_name: Optional[str] = None,
         customer_name: Optional[str] = None,
         customer_crib: Optional[str] = None
@@ -80,6 +81,7 @@ class BasePrinter(ABC):
             general_comment: Footer comment for receipt
             is_refund: True if this is a refund/credit note
             receipt_number: Display receipt number
+            sequential_order_id: Sequential order ID (saved to config.json as last_order_id)
             pos_name: POS terminal name
             customer_name: Customer name (optional)
             customer_crib: Customer tax ID (optional)
