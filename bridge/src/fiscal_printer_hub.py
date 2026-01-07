@@ -19,15 +19,30 @@ import queue
 import threading
 import logging
 
+# IMPORTANT: Check for modal mode FIRST, before any other initialization
+# This ensures modals don't trigger single instance checks or other startup logic
+# Check all arguments, not just argv[1], since Nuitka may add extra arguments
+_IS_MODAL_MODE = False
+_MODAL_NAME = None
+for arg in sys.argv[1:]:
+    if arg.startswith('--modal='):
+        _IS_MODAL_MODE = True
+        _MODAL_NAME = arg.split('=')[1]
+        break
+
 # Enforce Python 3.13 requirement (pythonnet compatibility)
-if sys.version_info < (3, 13) or sys.version_info >= (3, 14):
+# Skip this check in modal mode since the main instance already passed it
+if not _IS_MODAL_MODE and (sys.version_info < (3, 13) or sys.version_info >= (3, 14)):
     print("=" * 60)
     print("ERROR: Python 3.13 is required")
     print(f"Current version: {sys.version}")
     print("pythonnet requires Python 3.13 (not 3.14+)")
     print("Please install Python 3.13 and try again")
     print("=" * 60)
-    input("Press Enter to exit...")
+    try:
+        input("Press Enter to exit...")
+    except (EOFError, OSError):
+        pass  # No stdin in GUI mode
     sys.exit(1)
 
 # Setup logging
@@ -80,7 +95,10 @@ def main():
         logger.info(f"  Active printer: {config['printer']['active']}")
     except Exception as e:
         logger.error(f"✗ Configuration error: {e}")
-        input("Press Enter to exit...")
+        try:
+            input("Press Enter to exit...")
+        except (EOFError, OSError):
+            pass  # No stdin in GUI mode
         sys.exit(1)
 
     # =========================================================================
@@ -102,7 +120,10 @@ def main():
             # Don't exit - printer may be offline temporarily
     except Exception as e:
         logger.error(f"✗ Printer initialization failed: {e}")
-        input("Press Enter to exit...")
+        try:
+            input("Press Enter to exit...")
+        except (EOFError, OSError):
+            pass  # No stdin in GUI mode
         sys.exit(1)
 
     # =========================================================================
@@ -124,7 +145,10 @@ def main():
             # Continue anyway - integration may start later
     except Exception as e:
         logger.error(f"✗ Software integration failed: {e}")
-        input("Press Enter to exit...")
+        try:
+            input("Press Enter to exit...")
+        except (EOFError, OSError):
+            pass  # No stdin in GUI mode
         sys.exit(1)
 
     # =========================================================================
@@ -173,7 +197,10 @@ def main():
         logger.info("✓ System tray started")
     except Exception as e:
         logger.error(f"✗ System tray failed: {e}")
-        input("Press Enter to exit...")
+        try:
+            input("Press Enter to exit...")
+        except (EOFError, OSError):
+            pass  # No stdin in GUI mode
         sys.exit(1)
 
     # =========================================================================
@@ -267,15 +294,17 @@ def _show_modal_error(title, message):
 
 def _is_compiled():
     """Check if running as compiled executable (Nuitka or PyInstaller)."""
-    # Nuitka sets __compiled__ at module level
-    if '__compiled__' in dir():
-        return True
     # PyInstaller sets sys.frozen
     if getattr(sys, 'frozen', False):
         return True
-    # Check if executable is in a .dist folder (Nuitka standalone)
-    if '.dist' in sys.executable:
+    # Nuitka sets __compiled__ at module level
+    if '__compiled__' in globals():
         return True
+    # Check if executable ends with .exe and is not python.exe/pythonw.exe
+    if sys.executable.lower().endswith('.exe'):
+        exe_name = os.path.basename(sys.executable).lower()
+        if exe_name not in ('python.exe', 'pythonw.exe', 'python3.exe', 'python313.exe'):
+            return True
     return False
 
 
@@ -289,13 +318,25 @@ def run_modal_standalone(modal_name):
     try:
         from src.core.config_manager import load_config
 
+        # Debug: Log compilation detection
+        is_compiled = _is_compiled()
+        logger.info(f"[MODAL SUBPROCESS] _is_compiled() = {is_compiled}")
+        logger.info(f"[MODAL SUBPROCESS] sys.executable = {sys.executable}")
+        logger.info(f"[MODAL SUBPROCESS] sys.frozen = {getattr(sys, 'frozen', False)}")
+        logger.info(f"[MODAL SUBPROCESS] __compiled__ in globals = {'__compiled__' in globals()}")
+
         # Load config - always use executable directory for compiled mode
-        if _is_compiled():
+        if is_compiled:
             config_path = os.path.join(os.path.dirname(sys.executable), 'config.json')
         else:
             config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'config.json')
 
-        logger.info(f"[MODAL SUBPROCESS] Loading config from: {config_path}")
+        logger.info(f"[MODAL SUBPROCESS] Config path: {config_path}")
+        logger.info(f"[MODAL SUBPROCESS] Config exists: {os.path.exists(config_path)}")
+
+        if not os.path.exists(config_path):
+            raise FileNotFoundError(f"Config file not found: {config_path}")
+
         config = load_config(config_path)
         logger.info(f"[MODAL SUBPROCESS] Config loaded successfully")
 
@@ -329,20 +370,48 @@ if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()
 
+    # Debug: Log sys.argv to understand what arguments are being passed
+    logger.info(f"[STARTUP] sys.argv = {sys.argv}")
+    logger.info(f"[STARTUP] sys.executable = {sys.executable}")
+    logger.info(f"[STARTUP] sys.argv length = {len(sys.argv)}")
+    logger.info(f"[STARTUP] Working directory = {os.getcwd()}")
+    logger.info(f"[STARTUP] Executable directory = {os.path.dirname(sys.executable)}")
+    logger.info(f"[STARTUP] _IS_MODAL_MODE = {_IS_MODAL_MODE}")
+    logger.info(f"[STARTUP] _MODAL_NAME = {_MODAL_NAME}")
+
+    # Check if required files exist
+    if _is_compiled():
+        exe_dir = os.path.dirname(sys.executable)
+        required_paths = [
+            os.path.join(exe_dir, 'src'),
+            os.path.join(exe_dir, 'config.json'),
+        ]
+        for path in required_paths:
+            exists = os.path.exists(path)
+            logger.info(f"[STARTUP] Path exists: {path} = {exists}")
+            if not exists:
+                logger.warning(f"[STARTUP] Missing required path: {path}")
+
     # Check for modal mode (launched as subprocess for isolated webview)
-    if len(sys.argv) > 1 and sys.argv[1].startswith('--modal='):
-        modal_name = sys.argv[1].split('=')[1]
+    # This check was already done at module level to prevent any initialization conflicts
+    if _IS_MODAL_MODE:
+        logger.info(f"[STARTUP] Modal mode detected: {_MODAL_NAME}")
         try:
-            run_modal_standalone(modal_name)
+            run_modal_standalone(_MODAL_NAME)
         except Exception as e:
             logger.error(f"[MODAL SUBPROCESS] Fatal error: {e}", exc_info=True)
-            _show_modal_error("Modal Error", f"Fatal error in {modal_name}:\n{e}")
+            _show_modal_error("Modal Error", f"Fatal error in {_MODAL_NAME}:\n{e}")
         sys.exit(0)
 
     # Normal startup - run main application with system tray
+    logger.info(f"[STARTUP] Starting normal application mode...")
     try:
         main()
     except Exception as e:
         logger.error(f"Fatal error: {e}", exc_info=True)
-        input("Press Enter to exit...")
+        try:
+            input("Press Enter to exit...")
+        except (EOFError, OSError):
+            # No stdin in GUI mode, just exit
+            pass
         sys.exit(1)

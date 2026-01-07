@@ -6,7 +6,7 @@ REM ============================================================
 setlocal
 cd /d "%~dp0"
 
-set "APP_VERSION=1.5.2"
+set "APP_VERSION=1.5.3"
 set "APP_NAME=BAB-PrintHub-v%APP_VERSION%"
 set "BUILD_TAG=%RANDOM%%RANDOM%"
 set "MODULE_NAME=fiscal_printer_hub"

@@ -10,12 +10,28 @@ from logging.handlers import RotatingFileHandler
 import os
 import sys
 
+# Determine if running as compiled executable
+def _is_compiled():
+    """Check if running as compiled executable (Nuitka or PyInstaller)."""
+    # PyInstaller sets sys.frozen
+    if getattr(sys, "frozen", False):
+        return True
+    # Nuitka sets __compiled__ at module level
+    if "__compiled__" in globals():
+        return True
+    # Check if executable ends with .exe and is not python.exe/pythonw.exe
+    if sys.executable.lower().endswith('.exe'):
+        exe_name = os.path.basename(sys.executable).lower()
+        if exe_name not in ('python.exe', 'pythonw.exe', 'python3.exe', 'python313.exe'):
+            return True
+    return False
+
 # Determine base directory
 _env_base = os.environ.get("BAB_UI_BASE")
 if _env_base:
     BASE_DIR = _env_base.strip()
-elif getattr(sys, 'frozen', False):
-    # Running as compiled executable
+elif _is_compiled():
+    # Running as compiled executable - use exe directory
     BASE_DIR = os.path.dirname(sys.executable)
 else:
     # Running as script - go up 2 levels from src/logger_module.py to bridge/
@@ -82,3 +98,6 @@ logger.propagate = False
 
 if _added_handlers:
     logger.info("Logger initialized")
+    logger.info(f"Log file: {log_file}")
+    logger.info(f"Base directory: {BASE_DIR}")
+    logger.info(f"Is compiled: {_is_compiled()}")

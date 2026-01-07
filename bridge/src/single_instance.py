@@ -95,7 +95,21 @@ def check_single_instance(app_name="BAB_Cloud_PrintHub") -> SingleInstance:
         print("BAB Cloud PrintHub is already running in the system tray.")
         print("Please close the existing instance before starting a new one.")
         print()
-        input("Press Enter to exit...")
+        try:
+            input("Press Enter to exit...")
+        except (EOFError, OSError):
+            # No stdin available (GUI mode without console)
+            # Show message box if possible, then exit
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    "BAB Cloud PrintHub is already running.\n\nPlease close the existing instance before starting a new one.",
+                    "Already Running",
+                    0x30  # MB_ICONWARNING
+                )
+            except Exception:
+                pass
         sys.exit(1)
 
     return instance_lock

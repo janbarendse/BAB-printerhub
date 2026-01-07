@@ -14,12 +14,18 @@ logger = logging.getLogger(__name__)
 
 
 def _is_compiled() -> bool:
-    if "__compiled__" in dir():
-        return True
+    """Check if running as compiled executable (Nuitka or PyInstaller)."""
+    # PyInstaller sets sys.frozen
     if getattr(sys, "frozen", False):
         return True
-    if ".dist" in sys.executable:
+    # Nuitka sets __compiled__ at module level
+    if "__compiled__" in globals():
         return True
+    # Check if executable ends with .exe and is not python.exe/pythonw.exe
+    if sys.executable.lower().endswith('.exe'):
+        exe_name = os.path.basename(sys.executable).lower()
+        if exe_name not in ('python.exe', 'pythonw.exe', 'python3.exe', 'python313.exe'):
+            return True
     return False
 
 
@@ -69,7 +75,10 @@ class UIModalLauncher:
         env["PYTHONPATH"] = f"{self.base_dir}{os.pathsep}{env.get('PYTHONPATH', '')}"
 
         if _is_compiled():
-            args = [sys.executable, f"--modal={modal_name}"]
+            # Use absolute path to ensure we launch the correct executable
+            # even when the app is moved to a different location
+            exe_path = os.path.abspath(sys.executable)
+            args = [exe_path, f"--modal={modal_name}"]
         else:
             if not self.python_exe:
                 logger.error("UI runtime not found. Set BAB_UI_PYTHON or bundle ui_runtime.")
@@ -78,10 +87,25 @@ class UIModalLauncher:
                 logger.error("UI entrypoint not found: %s", self.ui_entry)
                 return False
             args = [self.python_exe, self.ui_entry, f"--modal={modal_name}"]
+
+        logger.info("Launching modal subprocess with args: %s", args)
+        logger.info("Executable: %s", sys.executable)
+        logger.info("Absolute exe path: %s", os.path.abspath(sys.executable))
+        logger.info("Is compiled: %s", _is_compiled())
+        logger.info("Base directory: %s", self.base_dir)
+        logger.info("Current working directory: %s", os.getcwd())
+        logger.info("Exe exists: %s", os.path.exists(sys.executable))
+
+        # Ensure base_dir is absolute and exists
+        abs_base_dir = os.path.abspath(self.base_dir)
+        if not os.path.isdir(abs_base_dir):
+            logger.error("Base directory does not exist: %s", abs_base_dir)
+            return False
+
         try:
             subprocess.Popen(
                 args,
-                cwd=self.base_dir,
+                cwd=abs_base_dir,
                 env=env,
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
             )
