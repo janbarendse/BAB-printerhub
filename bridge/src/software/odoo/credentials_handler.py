@@ -39,6 +39,16 @@ def load_credentials(base_dir: str, filename: str = 'odoo_credentials_encrypted.
     filepath = os.path.join(base_dir, filename)
 
     if not os.path.exists(filepath):
+        # Provide detailed debugging information
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Credentials file not found at: {filepath}")
+        logger.error(f"  base_dir: {base_dir}")
+        logger.error(f"  filename: {filename}")
+        logger.error(f"  Absolute path: {os.path.abspath(filepath)}")
+        logger.error(f"  Directory exists: {os.path.exists(base_dir)}")
+        if os.path.exists(base_dir):
+            logger.error(f"  Files in directory: {os.listdir(base_dir)[:20]}")  # Show first 20 files
         raise FileNotFoundError(f"Credentials file not found: {filepath}")
 
     # Initialize cipher

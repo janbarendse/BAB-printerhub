@@ -27,15 +27,18 @@ def _is_compiled():
     return False
 
 # Determine base directory
-_env_base = os.environ.get("BAB_UI_BASE")
-if _env_base:
-    BASE_DIR = _env_base.strip()
-elif _is_compiled():
-    # Running as compiled executable - use exe directory
+# Priority: compiled executable > environment variable > source location
+if _is_compiled():
+    # Running as compiled executable - ALWAYS use exe directory (ignore BAB_UI_BASE)
     BASE_DIR = os.path.dirname(sys.executable)
 else:
-    # Running as script - go up 2 levels from src/logger_module.py to bridge/
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # Running from source - check for environment variable override
+    _env_base = os.environ.get("BAB_UI_BASE")
+    if _env_base:
+        BASE_DIR = _env_base.strip()
+    else:
+        # Running as script - go up 2 levels from src/logger_module.py to bridge/
+        BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Create logger
 logger = logging.getLogger('BAB_Cloud_PrintHub')

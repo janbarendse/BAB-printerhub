@@ -8,10 +8,43 @@ import os
 from .credentials_handler import load_credentials
 
 
-if getattr(sys, 'frozen', False):
-    base_dir = os.path.dirname(sys.executable)
-elif __file__:
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+def _is_compiled():
+    """Check if running as compiled executable (Nuitka or PyInstaller)."""
+    # PyInstaller sets sys.frozen
+    if getattr(sys, "frozen", False):
+        return True
+    # Nuitka sets __compiled__ at module level
+    if "__compiled__" in globals():
+        return True
+    # Check if executable ends with .exe and is not python.exe/pythonw.exe
+    if sys.executable.lower().endswith('.exe'):
+        exe_name = os.path.basename(sys.executable).lower()
+        if exe_name not in ('python.exe', 'pythonw.exe', 'python3.exe', 'python313.exe'):
+            return True
+    return False
+
+
+def _resolve_base_dir():
+    """
+    Resolve base directory with proper priority for compiled executables.
+    Priority: compiled executable > environment variable > source location
+    """
+    if _is_compiled():
+        # Running as compiled executable - ALWAYS use exe directory (ignore BAB_UI_BASE)
+        return os.path.dirname(sys.executable)
+
+    # Running from source - check for environment variable override
+    env_base = os.environ.get("BAB_UI_BASE")
+    if env_base:
+        return env_base
+
+    if __file__:
+        return os.path.dirname(os.path.abspath(__file__))
+
+    return os.getcwd()
+
+
+base_dir = _resolve_base_dir()
 
 
 def load_config():

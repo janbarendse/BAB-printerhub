@@ -138,11 +138,26 @@ def main():
 
         # Start the integration
         logger.info("  Starting integration...")
-        if software.start():
-            logger.info(f"  ✓ {software.get_name()} integration started")
-        else:
-            logger.warning(f"  ✗ {software.get_name()} integration failed to start")
-            # Continue anyway - integration may start later
+        try:
+            start_result = software.start()
+            if start_result:
+                logger.info(f"  ✓ {software.get_name()} integration started")
+            else:
+                logger.warning(f"  ✗ {software.get_name()} integration failed to start")
+                # Log error details if available
+                if hasattr(software, 'errors') and software.errors:
+                    logger.error(f"  Error details: {software.errors[-1]}")
+                if hasattr(software, 'get_status'):
+                    status = software.get_status()
+                    if 'error' in status:
+                        logger.error(f"  Status error: {status['error']}")
+                # Continue anyway - integration may start later
+        except Exception as start_ex:
+            logger.error(f"  ✗ Exception during {software.get_name()} start(): {start_ex}")
+            logger.error(f"  Exception type: {type(start_ex).__name__}")
+            import traceback
+            logger.error(f"  Traceback: {traceback.format_exc()}")
+            # Continue anyway
     except Exception as e:
         logger.error(f"✗ Software integration failed: {e}")
         try:

@@ -6,6 +6,7 @@ It wraps the existing rpc_client.py polling logic and provides a standardized
 interface for the BABPrinterHub bridge system.
 """
 
+import json
 import logging
 import threading
 import time
@@ -73,27 +74,62 @@ class OdooIntegration(BaseSoftware):
         Returns:
             bool: True if started successfully, False otherwise
         """
+        logger.info("[DEBUG] OdooIntegration.start() method called")
+        logger.info(f"[DEBUG] self.base_dir = {self.base_dir}")
+        logger.info(f"[DEBUG] self.running = {self.running}")
+
         if self.running:
             logger.warning("Odoo integration already running")
             return False
 
         try:
             # Load credentials
-            credentials = load_credentials(self.base_dir)
-            self.url = credentials['url']
-            self.database = credentials['database']
-            self.username = credentials['username']
-            self.password = credentials['password']
-            self.pos_config_name = credentials['pos_config_name']
+            logger.info("Loading Odoo credentials...")
+            try:
+                credentials = load_credentials(self.base_dir)
+                self.url = credentials['url']
+                self.database = credentials['database']
+                self.username = credentials['username']
+                self.password = credentials['password']
+                self.pos_config_name = credentials['pos_config_name']
+                logger.info(f"✓ Credentials loaded successfully")
+                logger.debug(f"  URL: {self.url}")
+                logger.debug(f"  Database: {self.database}")
+                logger.debug(f"  Username: {self.username}")
+                logger.debug(f"  POS Config: {self.pos_config_name}")
+            except FileNotFoundError as e:
+                logger.error(f"✗ Credentials file not found: {e}")
+                logger.error(f"  Expected location: {self.base_dir}")
+                logger.error(f"  Please ensure 'odoo_credentials_encrypted.json' exists in the base directory")
+                self._add_error(f"Credentials file not found: {e}")
+                return False
+            except json.JSONDecodeError as e:
+                logger.error(f"✗ Invalid credentials file format: {e}")
+                logger.error(f"  The credentials file may be corrupted or not valid JSON")
+                self._add_error(f"Invalid credentials format: {e}")
+                return False
+            except Exception as e:
+                logger.error(f"✗ Failed to decrypt credentials: {e}")
+                logger.error(f"  The encryption key may be incorrect or the file may be corrupted")
+                logger.error(f"  Error type: {type(e).__name__}")
+                self._add_error(f"Credential decryption failed: {e}")
+                return False
 
             # Test authentication
+            logger.info("Authenticating with Odoo server...")
             if not self._authenticate():
-                logger.error("Failed to authenticate with Odoo")
+                logger.error("✗ Failed to authenticate with Odoo")
+                logger.error(f"  URL: {self.url}")
+                logger.error(f"  Database: {self.database}")
+                logger.error(f"  Username: {self.username}")
+                logger.error(f"  Check that the credentials are correct and the server is accessible")
                 return False
 
             # Fetch POS config ID
+            logger.info(f"Fetching POS configuration '{self.pos_config_name}'...")
             if not self._fetch_pos_config_id():
-                logger.error(f"Failed to find POS config: {self.pos_config_name}")
+                logger.error(f"✗ Failed to find POS config: {self.pos_config_name}")
+                logger.error(f"  Please verify the POS configuration name exists in your Odoo instance")
                 return False
 
             # Start polling thread
@@ -101,11 +137,14 @@ class OdooIntegration(BaseSoftware):
             self.thread = threading.Thread(target=self._polling_loop, daemon=True)
             self.thread.start()
 
-            logger.info(f"Odoo integration started (polling interval: {self.poll_interval}s)")
+            logger.info(f"✓ Odoo integration started (polling interval: {self.poll_interval}s)")
             return True
 
         except Exception as e:
-            logger.error(f"Error starting Odoo integration: {e}")
+            logger.error(f"✗ Unexpected error starting Odoo integration: {e}")
+            logger.error(f"  Error type: {type(e).__name__}")
+            import traceback
+            logger.debug(f"  Traceback: {traceback.format_exc()}")
             self._add_error(str(e))
             return False
 
@@ -241,27 +280,55 @@ class OdooIntegration(BaseSoftware):
     def _authenticate(self) -> bool:
         """Authenticate with Odoo server."""
         try:
+            logger.debug(f"Connecting to Odoo XML-RPC endpoint: {self.url}/xmlrpc/2/common")
             common = xmlrpc.client.ServerProxy(f"{self.url}/xmlrpc/2/common")
+
+            logger.debug(f"Attempting authentication for database '{self.database}' with username '{self.username}'")
             self.uid = common.authenticate(self.database, self.username, self.password, {})
 
             if not self.uid:
-                logger.error("Authentication failed - invalid credentials")
+                logger.error("✗ Authentication failed - server returned no user ID")
+                logger.error("  Possible causes:")
+                logger.error("  - Invalid username or password")
+                logger.error("  - Database name is incorrect")
+                logger.error("  - User account is disabled or does not exist")
+                self._add_error("Authentication failed - invalid credentials")
                 return False
 
             # Initialize models proxy
             self.models = xmlrpc.client.ServerProxy(f"{self.url}/xmlrpc/2/object")
 
-            logger.info(f"Authenticated with Odoo as user ID {self.uid}")
+            logger.info(f"✓ Authenticated with Odoo as user ID {self.uid}")
             return True
 
+        except xmlrpc.client.ProtocolError as e:
+            logger.error(f"✗ XML-RPC protocol error during authentication: {e}")
+            logger.error(f"  URL: {e.url}")
+            logger.error(f"  HTTP Status: {e.errcode}")
+            logger.error(f"  Message: {e.errmsg}")
+            logger.error(f"  This usually means the server is unreachable or the URL is incorrect")
+            self._add_error(f"Protocol error: {e.errcode} {e.errmsg}")
+            return False
+        except ConnectionRefusedError as e:
+            logger.error(f"✗ Connection refused by Odoo server: {e}")
+            logger.error(f"  URL: {self.url}")
+            logger.error(f"  Check that the Odoo server is running and the URL is correct")
+            self._add_error(f"Connection refused: {e}")
+            return False
         except Exception as e:
-            logger.error(f"Authentication error: {e}")
+            logger.error(f"✗ Unexpected authentication error: {e}")
+            logger.error(f"  Error type: {type(e).__name__}")
+            logger.error(f"  URL: {self.url}")
+            logger.error(f"  Database: {self.database}")
+            import traceback
+            logger.debug(f"  Traceback: {traceback.format_exc()}")
             self._add_error(f"Auth error: {e}")
             return False
 
     def _fetch_pos_config_id(self) -> bool:
         """Fetch the POS configuration ID by name."""
         try:
+            logger.debug(f"Searching for POS config with name: '{self.pos_config_name}'")
             pos_config_ids = self.models.execute_kw(
                 self.database, self.uid, self.password,
                 'pos.config', 'search',
@@ -269,15 +336,42 @@ class OdooIntegration(BaseSoftware):
             )
 
             if not pos_config_ids:
-                logger.error(f"POS Config '{self.pos_config_name}' not found")
+                logger.error(f"✗ POS Config '{self.pos_config_name}' not found in Odoo")
+                logger.error(f"  Please verify that:")
+                logger.error(f"  1. The POS configuration exists in your Odoo instance")
+                logger.error(f"  2. The name matches exactly (case-sensitive)")
+                logger.error(f"  3. Your user has access to view POS configurations")
+
+                # Try to list available POS configs for debugging
+                try:
+                    logger.info("  Attempting to list all available POS configurations...")
+                    all_configs = self.models.execute_kw(
+                        self.database, self.uid, self.password,
+                        'pos.config', 'search_read',
+                        [[]],
+                        {'fields': ['name'], 'limit': 10}
+                    )
+                    if all_configs:
+                        logger.info(f"  Found {len(all_configs)} POS configuration(s):")
+                        for config in all_configs:
+                            logger.info(f"    - {config['name']}")
+                    else:
+                        logger.warning("  No POS configurations found (user may not have access)")
+                except Exception as list_err:
+                    logger.debug(f"  Could not list POS configs: {list_err}")
+
+                self._add_error(f"POS config '{self.pos_config_name}' not found")
                 return False
 
             self.pos_config_id = pos_config_ids[0]
-            logger.info(f"Found POS Config ID {self.pos_config_id} for '{self.pos_config_name}'")
+            logger.info(f"✓ Found POS Config ID {self.pos_config_id} for '{self.pos_config_name}'")
             return True
 
         except Exception as e:
-            logger.error(f"Error fetching POS config: {e}")
+            logger.error(f"✗ Error fetching POS config: {e}")
+            logger.error(f"  Error type: {type(e).__name__}")
+            import traceback
+            logger.debug(f"  Traceback: {traceback.format_exc()}")
             self._add_error(f"POS config error: {e}")
             return False
 

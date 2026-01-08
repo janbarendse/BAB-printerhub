@@ -6,7 +6,7 @@ REM ============================================================
 setlocal
 cd /d "%~dp0"
 
-set "APP_VERSION=1.5.3"
+set "APP_VERSION=1.5.4"
 set "APP_NAME=BAB-PrintHub-v%APP_VERSION%"
 set "BUILD_TAG=%RANDOM%%RANDOM%"
 set "MODULE_NAME=fiscal_printer_hub"
@@ -75,6 +75,13 @@ if exist "%DIST_DIR%\\%MODULE_NAME%.exe" (
 )
 copy /Y config.json "%DIST_DIR%\config.json" >nul
 copy /Y config.json "%OUT_DIR%\config.json" >nul
+if exist odoo_credentials_encrypted.json (
+    echo Copying Odoo credentials...
+    copy /Y odoo_credentials_encrypted.json "%DIST_DIR%\odoo_credentials_encrypted.json" >nul
+    copy /Y odoo_credentials_encrypted.json "%OUT_DIR%\odoo_credentials_encrypted.json" >nul
+) else (
+    echo WARNING: odoo_credentials_encrypted.json not found - Odoo integration will not work
+)
 if not exist "%DIST_DIR%\\src\\assets\\icons" mkdir "%DIST_DIR%\\src\\assets\\icons"
 copy /Y src\\assets\\logo.png "%DIST_DIR%\\src\\assets\\logo.png" >nul
 copy /Y src\\assets\\icons\\arrow_down.svg "%DIST_DIR%\\src\\assets\\icons\\arrow_down.svg" >nul

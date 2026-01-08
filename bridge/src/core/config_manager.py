@@ -13,17 +13,40 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _is_compiled():
+    """Check if running as compiled executable (Nuitka or PyInstaller)."""
+    # PyInstaller sets sys.frozen
+    if getattr(sys, "frozen", False):
+        return True
+    # Nuitka sets __compiled__ at module level
+    if "__compiled__" in globals():
+        return True
+    # Check if executable ends with .exe and is not python.exe/pythonw.exe
+    if sys.executable.lower().endswith('.exe'):
+        exe_name = os.path.basename(sys.executable).lower()
+        if exe_name not in ('python.exe', 'pythonw.exe', 'python3.exe', 'python313.exe'):
+            return True
+    return False
+
+
 # Determine base directory (works for dev, UI runtime, and frozen/PyInstaller)
-_env_base = os.environ.get("BAB_UI_BASE")
-if _env_base:
-    BASE_DIR = _env_base
-elif getattr(sys, 'frozen', False):
-    # Running as compiled executable
+# Priority: compiled executable > environment variable > source location
+if _is_compiled():
+    # Running as compiled executable - ALWAYS use exe directory (ignore BAB_UI_BASE)
     BASE_DIR = os.path.dirname(sys.executable)
+    logger.info(f"BASE_DIR set from executable location (compiled): {BASE_DIR}")
+    logger.info(f"  Executable: {sys.executable}")
 else:
-    # Running as script from src/core/ directory
-    # Need to go up 3 levels: core -> src -> bridge
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    # Running from source - check for environment variable override
+    _env_base = os.environ.get("BAB_UI_BASE")
+    if _env_base:
+        BASE_DIR = _env_base
+        logger.info(f"BASE_DIR set from BAB_UI_BASE environment variable: {BASE_DIR}")
+    else:
+        # Running as script from src/core/ directory
+        # Need to go up 3 levels: core -> src -> bridge
+        BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        logger.info(f"BASE_DIR set from script location (dev mode): {BASE_DIR}")
 
 
 CONFIG_FILE = os.path.join(BASE_DIR, 'config.json')
